@@ -43,17 +43,17 @@ int main(int argc, char* argv[])
         for( ; ; )
         {
             std::cout << "Enter message: ";
-            char request[max_length];
-            clear(request, max_length);
-            std::cin.getline(request, max_length);
-            boost::asio::write(s, boost::asio::buffer(request,
-            max_length));
+            std::string request; 
+            std::getline(std::cin, request); 
+
+            boost::asio::write(s, boost::asio::buffer(request));
 
             char reply[max_length];
-            size_t reply_length =
-            boost::asio::read(s,boost::asio::buffer(reply,
-            max_length));
-            std::cout << "Reply is: " << reply << "\n";
+            size_t reply_length = s.read_some(boost::asio::buffer(reply, max_length));
+            
+            std::cout << "Reply is: ";
+            std::cout.write(reply, reply_length);
+            std::cout << "\n";
         }
     }
 

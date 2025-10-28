@@ -1,7 +1,11 @@
 import selectors
 import socket
 
+#import ssl
+# context = ssl.create_default_context()
+
 sel = selectors.DefaultSelector()
+
 def accept(sock, mask):
     conn, addr = sock.accept() # Should be ready
     print('accepted', conn, 'from', addr)

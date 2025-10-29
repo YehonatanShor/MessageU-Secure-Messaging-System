@@ -109,7 +109,7 @@ def main():
     # Register the listening socket and call 'accept' when a new client connects
     sel.register(sock, selectors.EVENT_READ, data={"callback": accept})
     
-    print(f"Server is listening on localhost:{port}")
+    print(f"Server is listening on localhost: {port}")
 
     # This is the main event loop
     try:

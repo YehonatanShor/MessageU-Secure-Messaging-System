@@ -1,6 +1,9 @@
 import selectors
 import socket
-import struct  # Used for packing/unpacking the 4-byte header
+import struct  # Used for packing/unpacking the 4-byte header - conversion between Big Indian and Little Indian
+
+DEFAULT_PORT = 1357
+PORT_FILENAME = "myport.info"
 
 # Create a default selector (picks the best one for the OS)
 sel = selectors.DefaultSelector()
@@ -64,6 +67,7 @@ def read(conn, mask):
             else:
                 # Not enough data for a full body, wait for more
                 break
+
 # Callback function called by the selector when a new client connects
 def accept(sock, mask):
     conn, addr = sock.accept()  # Should be ready
@@ -78,23 +82,47 @@ def accept(sock, mask):
     # Register the new client socket with the selector
     sel.register(conn, selectors.EVENT_READ, data=client_data)
 
+# Tries to read the port from PORT_FILENAME
+def get_port():
+    try:
+        with open(PORT_FILENAME, 'r') as f:
+            port_str = f.read().strip()
+            port = int(port_str)
+            print(f"Read port {port} from {PORT_FILENAME}")
+            return port
+    except FileNotFoundError:
+        print(f"WARNING: '{PORT_FILENAME}' not found. Using default port {DEFAULT_PORT}.")
+        return DEFAULT_PORT
+    except ValueError:
+        print(f"WARNING: '{PORT_FILENAME}' contains invalid data. Using default port {DEFAULT_PORT}.")
+        return DEFAULT_PORT
+
 def main():
+    port = get_port() # Get port from file or use default - 1357 port
+
     sock = socket.socket()
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) # Allow the socket to reuse the address (prevents "Address already in use")
-    sock.bind(('localhost', 1234))
+    sock.bind(('localhost', port)) # Use the 'port' variable instead of a hardcoded number
     sock.listen(100)
     sock.setblocking(False) # Set the main listening socket to non-blocking
 
     # Register the listening socket and call 'accept' when a new client connects
     sel.register(sock, selectors.EVENT_READ, data={"callback": accept})
-    print("Server is listening on localhost:1234")
+    
+    print(f"Server is listening on localhost:{port}")
 
     # This is the main event loop
-    while True:
-        events = sel.select()  # Wait for an event (blocking)
-        for key, mask in events: 
-            callback = key.data["callback"] # For each event, get the callback function we stored
-            callback(key.fileobj, mask) # Call the appropriate callback function
+    try:
+        while True:
+            events = sel.select()  # Wait for an event (blocking)
+            for key, mask in events: 
+                callback = key.data["callback"] # For each event, get the callback function we stored
+                callback(key.fileobj, mask) # Call the appropriate callback function
+    except KeyboardInterrupt:
+        print("\nServer shutting down.")
+    finally:
+        sel.close()
+        sock.close()
 
 # the entry point of the script
 if __name__ == "__main__":

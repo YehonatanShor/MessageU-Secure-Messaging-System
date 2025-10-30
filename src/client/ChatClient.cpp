@@ -6,10 +6,11 @@
 ChatClient::ChatClient(boost::asio::io_context& context)
     : io_context_(context), socket_(context), running_(false)
 {
-    // Constructor body
+    // All constructor operations are performed in the Initializer List,
+    //so the constructor body is empty.
 }
 
-// Connect to the server
+// Connect tovserver
 bool ChatClient::connect(const std::string& host, const std::string& port)
 {
     try
@@ -26,16 +27,16 @@ bool ChatClient::connect(const std::string& host, const std::string& port)
     }
 }
 
-// Start the reading thread in the background
+// Start reading thread in the background
 void ChatClient::run()
 {
     reader_thread_ = std::thread(&ChatClient::read_loop, this);
 }
 
-// Stop the client action and clean up
+// Stop client action and clean up
 void ChatClient::stop()
 {
-    running_ = false; // signal the reading thread to stop
+    running_ = false; // signal reading thread to stop
     if (socket_.is_open())
     {
         socket_.shutdown(tcp::socket::shutdown_both);
@@ -43,20 +44,20 @@ void ChatClient::stop()
     }
     if (reader_thread_.joinable())
     {
-        reader_thread_.join(); // wait for the reading thread to finish running
+        reader_thread_.join(); // wait for reading thread to finish running
     }
 }
 
 // The main writing logic (now part of the client class)
 void ChatClient::send_message(const std::string& message)
 {
-    if (!running_ || message.empty()) return; // safety check - do not send if not running or empty message
+    if (!running_ || message.empty()) return; // safety check - don't send if not running or empty message
     
     try
     {
         // Sends 4-byte header (length)
         uint32_t message_length = static_cast<uint32_t>(message.length());
-        uint32_t network_length = htonl(message_length); // Converts from host to network format - Little Indian to Big Indian
+        uint32_t network_length = htonl(message_length); // Converts from host to network format (Little Indian to Big Indian)
         boost::asio::write(socket_, boost::asio::buffer(&network_length, sizeof(network_length)));
         
         boost::asio::write(socket_, boost::asio::buffer(message)); // Sends message body
@@ -73,15 +74,15 @@ void ChatClient::read_loop()
 {
     try
     {
-        while (running_) // while the connection is active
+        while (running_) // while connection is active
         {
-            uint32_t network_header; // read the header first (4 bytes)
+            uint32_t network_header; // read header first (4 bytes)
             boost::asio::read(socket_, boost::asio::buffer(&network_header, sizeof(network_header)));
-            uint32_t message_length = ntohl(network_header); // Converts from network to host format - Big Indian to Little Indian
+            uint32_t message_length = ntohl(network_header); // Converts from network to host format (Big Indian to Little Indian)
 
             if (message_length == 0) continue;// Skip empty messages
 
-            // Create a string buffer of the *exact* size of the incoming message
+            // Create string buffer of *exact* size of incoming message
             std::string reply(message_length, '\0');
 
             // Read exactly message_length bytes into the string buffer
@@ -92,10 +93,10 @@ void ChatClient::read_loop()
         }
     }
 
-    // Closing communication if the server has disconnected
+    // Closing communication if server has disconnected
     catch (std::exception& e)
     {
         std::cout << "\rConnection closed." << std::endl;
-        running_ = false; // signal the writing thread to stop
+        running_ = false; // signal writing thread to stop
     }
 }

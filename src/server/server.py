@@ -26,7 +26,6 @@ REQUEST_HEADER_SIZE = 16 + 1 + 2 + 4; # ClientID(16) + Version(1) + Code(2) + Pa
 
 # server response code to client
 SERVER_VERSION = 1;
-RESPONSE_CODE_REGISTER_SUCCESS = 1600
 RESPONSE_CODE_REGISTER_SUCCESS = 2100;
 RESPONSE_CODE_DISPLAYING_CLIENTS_LIST = 2101;
 RESPONSE_CODE_SEND_PUBLIC_KEY = 2102;
@@ -59,15 +58,25 @@ class ConnectionState:
     def reset_for_new_request(self):
         self.state = "HEADER"
         self.buffer = b""
-        self.expected_len = REQUEST_HEADER_SIZE
+        self.expected_len = REQUEST_HEADER_SIZE # Expecting the full 23-byte header
+        self.client_id = b""
         self.request_code = 0
 
-    def set_payload_state(self, code, payload_size):
+    def set_payload_state(self, client_id, code, payload_size):
         self.state = "PAYLOAD"
+        self.client_id = client_id # Store the Clients UUID
         self.request_code = code
         self.expected_len = payload_size
 
 # --- Response Functions ---
+def send_response(conn, response_code, payload):
+    """Generic function to send any response to the client."""
+    try:
+        header = struct.pack('!BHI', CLIENT_VERSION, response_code, len(payload))
+        conn.sendall(header + payload)
+    except Exception as e:
+        print(f"Error sending response code {response_code}: {e}")
+
 def send_error_response(conn, error_message):
     """Sends a generic error message to the client."""
     print(f"Sending error to {conn.getpeername()}: {error_message}")
@@ -126,7 +135,8 @@ def handle_registration(conn, payload):
             "public_key": public_key
         }
         
-        print(f"Registered new user '{username}' with UUID {new_uuid.hex}")
+        # Debug print
+        # print(f"Registered new user '{username}' with UUID {new_uuid.hex}")
         
         # 7. Send success response back to client
         send_registration_success(conn, new_uuid)
@@ -135,6 +145,38 @@ def handle_registration(conn, payload):
         print(f"Error processing registration: {e}")
         send_error_response(conn, "Invalid registration payload.")
 
+def handle_client_list(conn, client_id_bytes):
+    """Handles a request for the client list (Code 601)."""
+    
+    # 1. Verify the client is registered
+    client_id_hex = client_id_bytes.hex()
+    if client_id_hex not in clients_db:
+        send_error_response(conn, "You are not registered.")
+        return
+
+    # 2. Build the payload
+    payload_chunks = []
+    requester_name = clients_db[client_id_hex]['name']
+    print(f"Sending client list to '{requester_name}'...")
+
+    for uuid_hex, info in clients_db.items():
+        # Don't send the user their own name
+        if uuid_hex == client_id_hex:
+            continue
+            
+        # Add the client's UUID (16 bytes)
+        payload_chunks.append(uuid.UUID(uuid_hex).bytes)
+        
+        # Add the client's name (padded to 255 bytes)
+        name_bytes = info['name'].encode('utf-8')
+        padded_name = name_bytes.ljust(USERNAME_FIXED_SIZE, b'\0')
+        payload_chunks.append(padded_name)
+
+    # 3. Join all chunks into one big payload
+    full_payload = b"".join(payload_chunks)
+    
+    # 4. Send the response
+    send_response(conn, RESPONSE_CODE_DISPLAYING_CLIENTS_LIST, full_payload)
 
 def handle_request(conn, state):
     """
@@ -147,7 +189,11 @@ def handle_request(conn, state):
     if state.request_code == REQUEST_CODE_REGISTER:
         print(f"Received registration request from {conn.getpeername()}")
         handle_registration(conn, payload)
-    
+
+    elif state.request_code == REQUEST_CODE_CLIENTS_LIST:
+        # All other requests must come from a registered client
+        handle_client_list(conn, state.client_id)
+
     # --- Other request codes will go here ---
     # elif state.request_code == REQUEST_CODE_CLIENT_LIST:
     #     handle_client_list(conn, payload)
@@ -160,14 +206,12 @@ def handle_request(conn, state):
     state.buffer = state.buffer[state.expected_len:]
     state.reset_for_new_request()
 
-
 # --- Main I/O Callbacks ---
 def read(conn, mask):
     """
     Callback called by the selector when a socket is ready for reading.
-    This is our state machine.
     """
-    state = sel.get_key(conn).data["state"] # Get the state for this client
+    state = sel.get_key(conn).data["state"] 
 
     try:
         data = conn.recv(1024)
@@ -185,23 +229,20 @@ def read(conn, mask):
 
     state.buffer += data
 
-    # Loop to process all complete messages in the buffer
     while True:
         if state.state == "HEADER":
-            # 1. בדוק אם יש לנו מספיק נתונים לכל הכותרת (23 בתים)
             if len(state.buffer) >= REQUEST_HEADER_SIZE:
-                
-                # 2. חתוך את כל 23 הבתים מהחוצץ
+                # 1. We have a full 23-byte header
                 full_header_data = state.buffer[:REQUEST_HEADER_SIZE]
                 
-                # 3. חתוך *רק* את 7 הבתים שאנו רוצים לפענח,
-                #    תוך התעלמות מ-16 הבתים הראשונים.
-                header_to_parse = full_header_data[CLIENT_UUID_SIZE:] # לוקח מבת 16 עד הסוף
+                # 2. Extract the ClientID (first 16 bytes)
+                client_id_from_header = full_header_data[:CLIENT_UUID_SIZE]
                 
-                # 4. עכשיו header_to_parse הוא בגודל 7, ו-unpack יעבוד
+                # 3. Extract the part to parse (last 7 bytes)
+                header_to_parse = full_header_data[CLIENT_UUID_SIZE:]
+                
+                # 4. Unpack the standard header
                 version, code, payload_size = struct.unpack('!BHI', header_to_parse)
-                
-                print(f"Received header from {conn.getpeername()}: version={version}, code={code}, payload_size={payload_size}")
                 
                 if version != CLIENT_VERSION:
                     print(f"Closing {conn.getpeername()}, invalid client version: {version}")
@@ -209,10 +250,10 @@ def read(conn, mask):
                     conn.close()
                     return
 
-                # 5. הגדר את המצב הבא (Payload)
-                state.set_payload_state(code, payload_size)
+                # 5. Set state for payload, now *including* the client_id
+                state.set_payload_state(client_id_from_header, code, payload_size)
                 
-                # 6. תקן את הבאג השני: הסר את *כל* 23 הבתים מהחוצץ
+                # 6. Remove the *full* 23-byte header from the buffer
                 state.buffer = state.buffer[REQUEST_HEADER_SIZE:]
             else:
                 break # Not enough data for a header, wait for more
@@ -221,8 +262,6 @@ def read(conn, mask):
             if len(state.buffer) >= state.expected_len:
                 # We have a full request (Payload)
                 handle_request(conn, state)
-                # handle_request will reset the state, so we loop again
-                # to check if there's another full request in the buffer
             else:
                 break # Not enough data for the payload, wait for more
         

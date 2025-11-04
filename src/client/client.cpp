@@ -74,12 +74,21 @@ const size_t RESPONSE_HEADER_SIZE = 1 + 2 + 4; // Version(1) + Code(2) + Payload
 
 // Client-side RAM Storage
 struct ClientInfo {
-    std::string name;
+    std::string username;
     // std::string uuid; // stored as hex ASCII
     std::string public_key;
     std::string symmetric_key; // For later
 };
 std::map<std::string, ClientInfo> g_client_db; // store clients info by UUID, key is UUID in hex ASCII
+
+// Holds info about *this* client, loaded from my.info
+struct MyInfo {
+    std::string name;
+    std::string uuid_hex;
+    std::string uuid_bin; // 16-byte binary version of the UUID
+    RSAPrivateWrapper* keys = nullptr; // Pointer to our keys
+} g_my_info;
+bool g_is_registered = false; // Flag to indicate if we are registered
 
 void show_menu() 
 {
@@ -92,7 +101,7 @@ void show_menu()
               << "151) Send a request for symmetric key\n"
               << "152) Send your symmetric key\n"
               << "0) Exit client\n"
-              << "? ";
+              << "?\n";
 }
 
 // Checks if the my.info file exists
@@ -115,6 +124,75 @@ std::string binary_to_hex_ascii(const std::string& bin_uuid)
     return hex;
 }
 
+std::string hex_ascii_to_binary(const std::string& hex)
+{
+    std::string bin;
+    CryptoPP::StringSource ss(hex, true,
+        new CryptoPP::HexDecoder(
+            new CryptoPP::StringSink(bin)
+        )
+    );
+    return bin;
+}
+
+// Helper function to trim whitespace from both ends of a string
+std::string trim(const std::string& s) {
+    auto start = std::find_if_not(s.begin(), s.end(), [](unsigned char c){ return std::isspace(c); });
+    auto end = std::find_if_not(s.rbegin(), s.rend(), [](unsigned char c){ return std::isspace(c); }).base();
+    return (start < end ? std::string(start, end) : std::string());
+}
+
+std::string trim_nulls(const char* buffer, size_t length)
+{
+    // Finds the first null character and returns a string up to that point
+    const char* end = (const char*)std::memchr(buffer, 0, length);
+    return end ? std::string(buffer, end) : std::string(buffer, length);
+}
+
+/**
+ * @brief Attempts to load client info from my.info into RAM
+ * @return True if successful, False otherwise.
+ */
+bool load_my_info()
+{
+    std::ifstream f(MY_INFO_FILE);
+    if (!f.good()) {
+        return false; // Not registered
+    }
+
+    try {
+        std::string name, uuid_hex, private_key_b64;
+        std::getline(f, name);
+        std::getline(f, uuid_hex);
+        
+        // Read the rest of the file for the (potentially multi-line) Base64 key
+        std::string line;
+        while (std::getline(f, line)) {
+            private_key_b64 += line;
+        }
+        f.close();
+
+        if (name.empty() || uuid_hex.empty() || private_key_b64.empty()) {
+            std::cerr << "Error: " << MY_INFO_FILE << " is corrupt or incomplete.\n";
+            return false;
+        }
+
+        // Load into RAM
+        g_my_info.name = name;
+        g_my_info.uuid_hex = uuid_hex;
+        g_my_info.uuid_bin = hex_ascii_to_binary(uuid_hex);
+        g_my_info.keys = new RSAPrivateWrapper(Base64Wrapper::decode(private_key_b64));
+        
+        g_is_registered = true;
+        std::cout << "Welcome back, " << g_my_info.name << "!" << std::endl;
+        return true;
+    }
+    catch (std::exception& e) {
+        std::cerr << "Error loading " << MY_INFO_FILE << ": " << e.what() << "\n";
+        return false;
+    }
+}
+
 //Handles the entire registration process
 void handle_registration(tcp::socket& s)
 {
@@ -128,11 +206,11 @@ void handle_registration(tcp::socket& s)
     std::cout << "Enter username: ";
     std::string username;
     std::getline(std::cin, username);
-    if (username.empty()) {
+    if (username.empty()) { // check if username is empty
         std::cerr << "Error: Username cannot be empty.\n";
         return;
     }
-    if (username.length() > USERNAME_FIXED_SIZE) {
+    if (username.length() > USERNAME_FIXED_SIZE) { // check if username is too long - more than 255 chars
         std::cerr << "Error: Username too long (max " << USERNAME_FIXED_SIZE << " chars).\n";
         return;
     }
@@ -173,15 +251,16 @@ void handle_registration(tcp::socket& s)
     request_buffer.insert(request_buffer.end(), username_payload.begin(), username_payload.end());
     request_buffer.insert(request_buffer.end(), public_key_payload.begin(), public_key_payload.end());
     
-    // Send request
     /*
+    // Debug: Print the entire request in hex
     std::cout << "the registration request is: ";
     std::copy(request_buffer.begin(), 
               request_buffer.end(), 
               std::ostream_iterator<char>(std::cout, "")); // אין רווחים בין התווים
 
-    std::cout << std::endl;
-    */
+    std::cout << std::endl;*/
+
+    // Send request
     std::cout << "Sending registration request to server..." << std::endl;
     boost::asio::write(s, boost::asio::buffer(request_buffer));
 
@@ -216,7 +295,7 @@ void handle_registration(tcp::socket& s)
         std::string uuid_bin(response_payload.begin(), response_payload.end());
         std::string uuid_hex = binary_to_hex_ascii(uuid_bin);
         
-        std::cout << "Registration successful! Your UUID is: " << uuid_hex << std::endl;
+        std::cout << "Registration successful! Your UUID is: " << uuid_hex << std::endl; // Print the UUID for debugging
 
         // 12. Save to my.info
         std::ofstream outfile(MY_INFO_FILE);
@@ -224,10 +303,107 @@ void handle_registration(tcp::socket& s)
         outfile << uuid_hex << "\n";        // Line 2: UUID (as ASCII Hex)
         outfile << private_key_b64;     // Line 3: Private Key (Base64)
         outfile.close();
+
+        // 13. Load info into RAM for current session
+        std::cout << "Loading info into session..." << std::endl;
+        load_my_info();
+    }
+    else if (response_code == REQUEST_CODE_CLIENTS_LIST)
+    {
+        std::cerr << "Server reported an error with no details.\n";
+    }
+    else if (response_code == RESPONSE_CODE_GENERAL_ERROR)
+    {
+        std::cerr << "Server reported an error.\n";
+    }
+    else // Got an error from the server
+    {
+        std::string error_msg(response_payload.begin(), response_payload.end());
+        std::cerr << "Server responded with an error: " << error_msg << std::endl;
+    }
+}
+
+/**
+ * @brief Handles requesting the client list (Code 120/601)
+ */
+void handle_client_list(tcp::socket& s)
+{
+    // 1. Check if user is registered
+    if (!g_is_registered) {
+        std::cerr << "Error: You must be registered to request the client list.\n";
+        return;
+    }
+
+    // 2. Build the request header (23 bytes)
+    std::vector<char> request_buffer;
+    request_buffer.reserve(REQUEST_HEADER_SIZE);
+
+    uint8_t version = CLIENT_VERSION;
+    uint16_t code = htons(REQUEST_CODE_CLIENTS_LIST);
+    uint32_t net_payload_size = htonl(0); // Payload size is 0
+
+    // Add header parts
+    // We *must* send our UUID so the server knows who is asking
+    request_buffer.insert(request_buffer.end(), g_my_info.uuid_bin.begin(), g_my_info.uuid_bin.end());
+    request_buffer.insert(request_buffer.end(), (char*)&version, (char*)&version + sizeof(version));
+    request_buffer.insert(request_buffer.end(), (char*)&code, (char*)&code + sizeof(code));
+    request_buffer.insert(request_buffer.end(), (char*)&net_payload_size, (char*)&net_payload_size + sizeof(net_payload_size));
+    
+    // 3. Send request (no payload)
+    std::cout << "Requesting client list from server..." << std::endl;
+    boost::asio::write(s, boost::asio::buffer(request_buffer));
+
+    // 4. Wait for server response (Header)
+    std::vector<char> response_header(RESPONSE_HEADER_SIZE);
+    boost::asio::read(s, boost::asio::buffer(response_header));
+
+    // 5. Parse response header
+    uint16_t response_code;
+    uint32_t response_payload_size;
+    std::memcpy(&response_code, response_header.data() + SERVER_VERSION_SIZE, RESPONSE_CODE_SIZE);
+    std::memcpy(&response_payload_size, response_header.data() + SERVER_VERSION_SIZE + RESPONSE_CODE_SIZE, RESPONSE_PAYLOAD_SIZE);
+    response_code = ntohs(response_code);
+    response_payload_size = ntohl(response_payload_size);
+    
+    // 6. Read response payload
+    std::vector<char> response_payload(response_payload_size);
+    if (response_payload_size > 0) {
+        boost::asio::read(s, boost::asio::buffer(response_payload));
+    }
+
+    // 7. Process response
+    if (response_code == RESPONSE_CODE_DISPLAYING_CLIENTS_LIST)
+    {
+        std::cout << "\n--- Registered Clients ---" << std::endl;
+        g_client_db.clear(); // Clear the old list
+        
+        const size_t entry_size = CLIENT_UUID_SIZE + USERNAME_FIXED_SIZE;
+        if (response_payload_size % entry_size != 0) {
+            std::cerr << "Error: Server sent a corrupt client list.\n";
+            return;
+        }
+
+        // Loop through the payload, one client at a time
+        for (size_t i = 0; i < response_payload_size; i += entry_size)
+        {
+            const char* entry_ptr = response_payload.data() + i;
+            
+            std::string uuid_bin(entry_ptr, CLIENT_UUID_SIZE);
+            std::string uuid_hex = binary_to_hex_ascii(uuid_bin);
+            
+            // Trim null bytes from the fixed-size name field
+            std::string name = trim_nulls(entry_ptr + CLIENT_UUID_SIZE, USERNAME_FIXED_SIZE);
+
+            // Print to screen
+            std::cout << "Name: " << name << "\nUUID: " << uuid_hex << "\n---\n";
+            
+            // Save to our in-RAM database
+            g_client_db[uuid_hex].username = name;
+            // (We will get the public key in step 130)
+        }
     }
     else
     {
-        // Got an error from the server
         std::string error_msg(response_payload.begin(), response_payload.end());
         std::cerr << "Server responded with an error: " << error_msg << std::endl;
     }
@@ -260,6 +436,10 @@ int main()
 
     try 
     {
+        // 1. Load my.info *before* anything else
+        load_my_info(); 
+
+        // Load server info from file
         auto server_info = load_server_info();
         host = server_info.first; 
         port = server_info.second;
@@ -287,39 +467,42 @@ int main()
         {
             show_menu();
             std::getline(std::cin, users_choice);
+            users_choice = trim(users_choice); // Trim whitespace
             
             if (users_choice == "0") {
                 break; // Exit loop
             }
             else if (users_choice == "110") {
                 handle_registration(s);
+                continue;
             }
             else if (users_choice == "120")
             {
-                
+                handle_client_list(s);
+                continue;
             }
             else if (users_choice == "130")
             {
-                
+                continue;
             }
             else if (users_choice == "140")
             {
-                
+                continue;
             }
             else if (users_choice == "150")
             {
-                
+                continue;
             }
             else if (users_choice == "151")
             {
-                
+                continue;
             }
             else if (users_choice == "152")
             {
-                
+                continue;
             }
-            // --- Other menu options will go here ---
-            else {
+            else // Other menu options will go here
+            {
                 std::cout << "Invalid option. Please try again.\n"; // unrecognized input
             }
         }

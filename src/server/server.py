@@ -14,6 +14,11 @@ REQUEST_CODE_PUBLIC_KEY = 602;
 REQUEST_CODE_SEND_TEXT_MESSAGE = 603;
 REQUEST_CODE_WAITING_MESSAGES = 604;
 
+# Message Types (for payload of code 603)
+MSG_TYPE_SYM_KEY_REQUEST = 1
+MSG_TYPE_SYM_KEY_SEND = 2
+MSG_TYPE_TEXT_MESSAGE = 3
+
 # size in bytes
 CLIENT_UUID_SIZE = 16;
 CLIENT_VERSION_SIZE = 1;
@@ -39,6 +44,8 @@ RESPONSE_CODE_SIZE = 2;
 RESPONSE_PAYLOAD_SIZE = 4;
 RESPONSE_HEADER_SIZE = 1 + 2 + 4; # Version(1) + Code(2) + PayloadSize(4)
 
+# Global counter for unique message IDs
+g_message_id_counter = 0
 
 # DB for storing clients data in RAM
 clients_db = {} # This DB holds client info, keyed by UUID (as hex string)
@@ -206,6 +213,121 @@ def handle_public_key_request(conn, client_id_bytes, payload):
     # 6. Send the response
     send_response(conn, RESPONSE_CODE_SEND_PUBLIC_KEY, response_payload)
 
+# Generates a new unique message ID
+def get_new_message_id():
+    global g_message_id_counter
+    g_message_id_counter += 1
+    return g_message_id_counter
+
+# Handles a request to send a message (Code 603)
+def handle_send_message(conn, client_id_bytes, payload):
+    
+    # 1. Authenticate the *sender*
+    sender_id_hex = client_id_bytes.hex()
+    if sender_id_hex not in clients_db:
+        send_error_response(conn, "Authentication failed. You are not registered.")
+        return
+
+    # 2. Parse the inner payload header
+    try:
+        target_id_bytes = payload[0:CLIENT_UUID_SIZE]
+        msg_type = payload[CLIENT_UUID_SIZE : CLIENT_UUID_SIZE + 1][0] # Get the 1 byte
+        content_size_bytes = payload[CLIENT_UUID_SIZE + 1 : CLIENT_UUID_SIZE + 1 + 4]
+        content_size = struct.unpack('!I', content_size_bytes)[0]
+        
+        # 3. Extract the message content
+        content = payload[CLIENT_UUID_SIZE + 1 + 4:]
+        
+        # 4. Validate content size
+        if len(content) != content_size:
+            send_error_response(conn, "Message content size mismatch.")
+            return
+
+    except Exception as e:
+        print(f"Error parsing send_message payload: {e}")
+        send_error_response(conn, "Invalid message payload structure.")
+        return
+
+    # 5. Find the target client
+    target_id_hex = target_id_bytes.hex()
+    if target_id_hex not in clients_db:
+        send_error_response(conn, "Target client UUID does not exist.")
+        return
+        
+    # --- At this point, sender and target are valid ---
+    
+    # 6. Generate a new message ID
+    new_msg_id = get_new_message_id()
+
+    # 7. Store the message in the target's queue
+    # The server stores the *full encrypted payload*
+    # It cannot read the content (End-to-End Encryption)
+    message_to_store = {
+        "id": new_msg_id,
+        "from_uuid": sender_id_hex,
+        "type": msg_type,
+        "content": content
+    }
+    
+    # Initialize queue if it doesn't exist
+    if target_id_hex not in message_queues:
+        message_queues[target_id_hex] = []
+    
+    # Add message to the target's queue
+    message_queues[target_id_hex].append(message_to_store)
+    
+    print(f"Stored message (ID: {new_msg_id}, Type: {msg_type}) from {sender_id_hex} for {target_id_hex}")
+
+    # 8. Send confirmation (Code 2103) back to the *sender*
+    # Payload: Target's UUID (16) + Message ID (4)
+    response_payload = target_id_bytes + struct.pack('!I', new_msg_id)
+    send_response(conn, RESPONSE_CODE_SEND_TEXT_MESSAGE, response_payload)
+
+# Handles a request to pull waiting messages (Code 604)
+def handle_pull_messages(conn, client_id_bytes):
+    
+    # 1. Authenticate the *requester*
+    requester_id_hex = client_id_bytes.hex()
+    if requester_id_hex not in clients_db:
+        send_error_response(conn, "Authentication failed. You are not registered.")
+        return
+
+    # 2. Find the user's message queue
+    if requester_id_hex not in message_queues or not message_queues[requester_id_hex]:
+        # No messages are waiting
+        print(f"No messages for '{clients_db[requester_id_hex]['name']}'. Sending empty response.")
+        send_response(conn, RESPONSE_CODE_PULL_WAITING_MESSAGE, b"") # Send 0-length payload
+        return
+
+    # 3. Build the payload
+    payload_chunks = []
+    
+    # Get the list of messages and *clear the queue* (atomic operation)
+    messages_to_send = message_queues.pop(requester_id_hex)
+    
+    print(f"Sending {len(messages_to_send)} messages to '{clients_db[requester_id_hex]['name']}'...")
+
+    # 4. For each message, pack it according to the protocol
+    for msg in messages_to_send:
+        # Payload: From_UUID (16) + MsgID (4) + Type (1) + Size (4) + Content (N)
+        
+        # From_UUID (16)
+        payload_chunks.append(uuid.UUID(msg["from_uuid"]).bytes)
+        # MsgID (4)
+        payload_chunks.append(struct.pack('!I', msg["id"]))
+        # Type (1)
+        payload_chunks.append(struct.pack('!B', msg["type"]))
+        # Content Size (4)
+        payload_chunks.append(struct.pack('!I', len(msg["content"])))
+        # Content (N)
+        payload_chunks.append(msg["content"])
+
+    # 5. Join all chunks into one big payload
+    full_payload = b"".join(payload_chunks)
+    
+    # 6. Send the response
+    send_response(conn, RESPONSE_CODE_PULL_WAITING_MESSAGE, full_payload)
+
 # Dispatches a complete request (Header + Payload) to the correct handler.
 def handle_request(conn, state):
 
@@ -227,10 +349,14 @@ def handle_request(conn, state):
     elif state.request_code == REQUEST_CODE_PUBLIC_KEY:
         handle_public_key_request(conn, state.client_id, payload)
 
-    # --- Other request codes will go here ---
-    # elif state.request_code == REQUEST_CODE_CLIENT_LIST:
-    #     handle_client_list(conn, payload)
-        
+    # Send message request (603)
+    elif state.request_code == REQUEST_CODE_SEND_TEXT_MESSAGE:
+        handle_send_message(conn, state.client_id, payload)
+
+    elif state.request_code == REQUEST_CODE_WAITING_MESSAGES:
+        handle_pull_messages(conn, state.client_id)
+
+    # Unknown request code    
     else:
         print(f"Received unknown request code {state.request_code}")
         send_error_response(conn, f"Unknown request code: {state.request_code}")

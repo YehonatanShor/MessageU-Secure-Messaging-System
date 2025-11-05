@@ -15,6 +15,8 @@
 #include <cstdint>      
 #include <algorithm>    // For std::min
 #include <cryptopp/hex.h>   // For hex encoding
+#include <cryptopp/filters.h> // --- ADDED ---: Required for StringSource
+#include <cryptopp/files.h>   // --- ADDED ---: Required for StringSink
 
 #include "RSAWrapper.h"     // For asimmetric key crypto and generation
 #include "Base64Wrapper.h"  // For saving private key
@@ -149,10 +151,25 @@ std::string trim_nulls(const char* buffer, size_t length)
     return end ? std::string(buffer, end) : std::string(buffer, length);
 }
 
-/**
- * @brief Attempts to load client info from my.info into RAM
- * @return True if successful, False otherwise.
- */
+//  Searches the in-RAM client DB for a user's UUID by their name
+std::string find_uuid_by_name(const std::string& name)
+{
+    // Loop through our global map (g_client_db)
+    // 'pair' will be one entry, e.g., <"UUID_HEX_STRING", ClientInfo_Object>
+    for (const auto& pair : g_client_db) 
+    {
+        // Check if the username in the map matches the name we're looking for
+        if (pair.second.username == name)
+        {
+            // if found, convert the UUID from hex ASCII to binary and return it
+            return hex_ascii_to_binary(pair.first);
+        }
+    }
+    // If the loop finishes without finding a match
+    return ""; // Return an empty string
+}
+
+// Attempts to load client info from my.info into RAM
 bool load_my_info()
 {
     std::ifstream f(MY_INFO_FILE);
@@ -250,15 +267,6 @@ void handle_registration(tcp::socket& s)
     // Add payload parts
     request_buffer.insert(request_buffer.end(), username_payload.begin(), username_payload.end());
     request_buffer.insert(request_buffer.end(), public_key_payload.begin(), public_key_payload.end());
-    
-    /*
-    // Debug: Print the entire request in hex
-    std::cout << "the registration request is: ";
-    std::copy(request_buffer.begin(), 
-              request_buffer.end(), 
-              std::ostream_iterator<char>(std::cout, "")); // אין רווחים בין התווים
-
-    std::cout << std::endl;*/
 
     // Send request
     std::cout << "Sending registration request to server..." << std::endl;
@@ -323,9 +331,7 @@ void handle_registration(tcp::socket& s)
     }
 }
 
-/**
- * @brief Handles requesting the client list (Code 120/601)
- */
+// Handles requesting the client list (Code 120/601)
 void handle_client_list(tcp::socket& s)
 {
     // 1. Check if user is registered
@@ -409,6 +415,100 @@ void handle_client_list(tcp::socket& s)
     }
 }
 
+//Handles requesting another client's public key (Code 130/602)
+void handle_request_public_key(tcp::socket& s)
+{
+    // 1. Check if user is registered
+    if (!g_is_registered) {
+        std::cerr << "Error: You must be registered to perform this action.\n";
+        return;
+    }
+
+    // 2. Get target username from user
+    std::cout << "Enter username to get their public key: ";
+    std::string target_username;
+    std::getline(std::cin, target_username);
+    if (target_username.empty()) return;
+
+    // 3. Find the target's UUID in our local RAM DB (g_client_db)
+    std::string target_uuid_bin = find_uuid_by_name(target_username);
+    if (target_uuid_bin.empty())
+    {
+        std::cerr << "Error: User '" << target_username << "' not found in your local client list.\n";
+        std::cerr << "Try running option 120 (Request for clients list) first.\n";
+        return;
+    }
+
+    // 4. Build the request header (23 bytes)
+    std::vector<char> request_buffer;
+    request_buffer.reserve(REQUEST_HEADER_SIZE + target_uuid_bin.length());
+
+    uint8_t version = CLIENT_VERSION;
+    uint16_t code = htons(REQUEST_CODE_PUBLIC_KEY); // Code 602
+    uint32_t net_payload_size = htonl(target_uuid_bin.length()); // Payload is the 16-byte UUID
+
+    // Add header parts
+    request_buffer.insert(request_buffer.end(), g_my_info.uuid_bin.begin(), g_my_info.uuid_bin.end()); // Our UUID
+    request_buffer.insert(request_buffer.end(), (char*)&version, (char*)&version + sizeof(version));
+    request_buffer.insert(request_buffer.end(), (char*)&code, (char*)&code + sizeof(code));
+    request_buffer.insert(request_buffer.end(), (char*)&net_payload_size, (char*)&net_payload_size + sizeof(net_payload_size));
+    
+    // 5. Add payload (the target's UUID)
+    request_buffer.insert(request_buffer.end(), target_uuid_bin.begin(), target_uuid_bin.end());
+
+    // 6. Send request
+    std::cout << "Requesting public key for " << target_username << "..." << std::endl;
+    boost::asio::write(s, boost::asio::buffer(request_buffer));
+
+    // 7. Wait for server response (Header)
+    std::vector<char> response_header(RESPONSE_HEADER_SIZE);
+    boost::asio::read(s, boost::asio::buffer(response_header));
+
+    // 8. Parse response header
+    uint16_t response_code;
+    uint32_t response_payload_size;
+    std::memcpy(&response_code, response_header.data() + SERVER_VERSION_SIZE, RESPONSE_CODE_SIZE);
+    std::memcpy(&response_payload_size, response_header.data() + SERVER_VERSION_SIZE + RESPONSE_CODE_SIZE, RESPONSE_PAYLOAD_SIZE);
+    response_code = ntohs(response_code);
+    response_payload_size = ntohl(response_payload_size);
+
+    // 9. Read response payload
+    std::vector<char> response_payload(response_payload_size);
+    if (response_payload_size > 0) {
+        boost::asio::read(s, boost::asio::buffer(response_payload));
+    }
+
+    // 10. Process response
+    if (response_code == RESPONSE_CODE_SEND_PUBLIC_KEY)
+    {
+        // Expected payload: Target's UUID (16) + Target's Public Key (160)
+        const size_t expected_size = CLIENT_UUID_SIZE + PUBLIC_KEY_FIXED_SIZE;
+        if (response_payload_size != expected_size) {
+            std::cerr << "Error: Server sent a corrupt public key payload.\n";
+            return;
+        }
+
+        // Extract data
+        std::string target_uuid_bin(response_payload.data(), CLIENT_UUID_SIZE);
+        std::string target_pub_key(response_payload.data() + CLIENT_UUID_SIZE, PUBLIC_KEY_FIXED_SIZE);
+        
+        std::string target_uuid_hex = binary_to_hex_ascii(target_uuid_bin);
+
+        // 11. Store the public key in our in-RAM database
+        g_client_db[target_uuid_hex].public_key = target_pub_key;
+        
+        std::cout << "Successfully received and stored public key for:\n";
+        std::cout << "Name: " << g_client_db[target_uuid_hex].username << "\n";
+        std::cout << "UUID: " << target_uuid_hex << "\n";
+        std::cout << "public key: " << Base64Wrapper::encode(target_pub_key) << "\n"; // Print public key in Base64 for readability
+    }
+    else
+    {
+        std::string error_msg(response_payload.begin(), response_payload.end());
+        std::cerr << "Server responded with an error: " << error_msg << std::endl;
+    }
+}
+
 // Loads server host and port from server.info file
 std::pair<std::string, std::string> load_server_info()
 {
@@ -483,6 +583,7 @@ int main()
             }
             else if (users_choice == "130")
             {
+                handle_request_public_key(s);
                 continue;
             }
             else if (users_choice == "140")

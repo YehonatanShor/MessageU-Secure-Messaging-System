@@ -69,7 +69,7 @@ const size_t MSG_CONTENT_SIZE_FIELD_SIZE = 4; // 4 bytes
 const size_t MSG_HEADER_SIZE = MSG_TARGET_ID_SIZE + MSG_TYPE_SIZE + MSG_CONTENT_SIZE_FIELD_SIZE;
 
 // server response code to client
-const uint8_t  SERVER_VERSION = 1;
+const uint8_t  SERVER_VERSION = 2;
 const uint16_t RESPONSE_CODE_REGISTER_SUCCESS = 2100;
 const uint16_t RESPONSE_CODE_DISPLAYING_CLIENTS_LIST = 2101;
 const uint16_t RESPONSE_CODE_SEND_PUBLIC_KEY = 2102;
@@ -526,7 +526,7 @@ void handle_request_public_key(tcp::socket& s)
         std::cout << "Successfully received and stored public key for:\n";
         std::cout << "Name: " << g_client_db[target_uuid_hex].username << "\n";
         std::cout << "UUID: " << target_uuid_hex << "\n";
-        std::cout << "public key: " << Base64Wrapper::encode(target_pub_key) << "\n"; // Print public key in Base64 for readability
+        //std::cout << "public key: " << Base64Wrapper::encode(target_pub_key) << "\n"; // Print public key in Base64 for readability
     }
     else
     {
@@ -780,6 +780,8 @@ void handle_pull_messages(tcp::socket& s)
             // 8c. Display the message based on its type
             std::cout << "From: " << find_name_by_uuid(from_uuid_bin) << "\n";
             std::cout << "Content:\n";
+            std::cout << ".\n";
+            std::cout << ".\n";
 
             switch (msg_type)
             {

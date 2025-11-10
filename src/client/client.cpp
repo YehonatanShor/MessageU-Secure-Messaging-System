@@ -12,6 +12,7 @@
 #include <vector>
 #include <map>
 #include <boost/asio.hpp>
+#include <filesystem>
 #include <cstdint>      
 #include <algorithm>    // For std::min
 #include <cryptopp/hex.h>   // For hex encoding
@@ -41,7 +42,7 @@ const uint16_t EXIT_CLIENT = 0;
 */
 
 // client request code from server 
-const uint8_t  CLIENT_VERSION = 1;
+const uint8_t  CLIENT_VERSION = 2;
 const uint16_t REQUEST_CODE_REGISTER = 600;
 const uint16_t REQUEST_CODE_CLIENTS_LIST = 601;
 const uint16_t REQUEST_CODE_PUBLIC_KEY = 602;
@@ -52,6 +53,7 @@ const uint16_t REQUEST_CODE_WAITING_MESSAGES = 604;
 const uint8_t MSG_TYPE_SYM_KEY_REQUEST = 1;
 const uint8_t MSG_TYPE_SYM_KEY_SEND = 2;
 const uint8_t MSG_TYPE_TEXT_MESSAGE = 3;
+const uint8_t MSG_TYPE_FILE = 4;
 
 // size in bytes
 const size_t CLIENT_UUID_SIZE = 16;
@@ -111,6 +113,7 @@ void show_menu()
               << "150) Send a text message\n"
               << "151) Send a request for symmetric key\n"
               << "152) Send your symmetric key\n"
+              << "153) Send a file\n"
               << "0) Exit client\n"
               << "?\n";
 }
@@ -535,6 +538,17 @@ void handle_request_public_key(tcp::socket& s)
     }
 }
 
+// Reads an entire file into a string (binary safe)
+std::string read_file_content(const std::string& filepath)
+{
+    std::ifstream file(filepath, std::ios::binary); // Open in binary mode!
+    if (!file) {
+        throw std::runtime_error("Cannot open file: " + filepath);
+    }
+    // Read the whole file into a string
+    return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+}
+
 // Main handler for options 150, 151, 152 - gets the target user and calls the appropriate function
 void handle_send_message_options(tcp::socket& s, const std::string& menu_choice)
 {
@@ -600,31 +614,47 @@ void handle_send_message_options(tcp::socket& s, const std::string& menu_choice)
         g_client_db[target_uuid_hex].symmetric_key = aes_key_bin;
         std::cout << "Generated and sent a new symmetric key to " << target_username << ".\n";
     }
-    // --- Logic for 150: Send Text Message ---
-    else if (menu_choice == "150")
+    // --- Logic for 150 (Text) AND 153 (File) ---
+    else if (menu_choice == "150" || menu_choice == "153")
     {
-        message_type = MSG_TYPE_TEXT_MESSAGE;
-
-        // 4a. Check if we have a symmetric key for this user
+        // 4a. Check for symmetric key
         std::string sym_key = g_client_db[target_uuid_hex].symmetric_key;
         if (sym_key.empty()) {
             std::cerr << "Error: You don't have a symmetric key for '" << target_username << "'.\n";
-            std::cerr << "Try running option 151 (Request key) or 152 (Send key) first.\n";
             return;
         }
 
-        // 4b. Get the text message from the user
-        std::cout << "Enter your message: ";
-        std::string text_message;
-        std::getline(std::cin, text_message);
-        if (text_message.empty()) return;
+        std::string data_to_encrypt;
 
-        // 4c. Encrypt the text using the *symmetric* key
+        if (menu_choice == "150") { // Text Message
+            message_type = MSG_TYPE_TEXT_MESSAGE;
+            std::cout << "Enter your message: ";
+            std::getline(std::cin, data_to_encrypt);
+            if (data_to_encrypt.empty()) return;
+        }
+        else { // File Transfer (153)
+            message_type = MSG_TYPE_FILE;
+            std::cout << "Enter full file path: ";
+            std::string filepath;
+            std::getline(std::cin, filepath);
+            // Remove potential quotes around path (common when dragging files to terminal)
+            filepath.erase(std::remove(filepath.begin(), filepath.end(), '\"'), filepath.end());
+
+            try {
+                data_to_encrypt = read_file_content(filepath);
+                std::cout << "Read " << data_to_encrypt.size() << " bytes from file.\n";
+            } catch (std::exception& e) {
+                std::cerr << "Error: " << e.what() << "\n"; // Prints "found not file" equivalent
+                return;
+            }
+        }
+
+        // 4c. Encrypt the data (text or file content)
         try {
             AESWrapper aes_encryptor((unsigned char*)sym_key.c_str(), sym_key.length());
-            message_content = aes_encryptor.encrypt(text_message.c_str(), text_message.length());
+            message_content = aes_encryptor.encrypt(data_to_encrypt.c_str(), data_to_encrypt.length());
         } catch (std::exception& e) {
-            std::cerr << "Error encrypting message: " << e.what() << "\n";
+            std::cerr << "Error encrypting: " << e.what() << "\n";
             return;
         }
     }
@@ -780,16 +810,14 @@ void handle_pull_messages(tcp::socket& s)
             // 8c. Display the message based on its type
             std::cout << "From: " << find_name_by_uuid(from_uuid_bin) << "\n";
             std::cout << "Content:\n";
-            std::cout << ".\n";
-            std::cout << ".\n";
 
             switch (msg_type)
             {
-                case MSG_TYPE_SYM_KEY_REQUEST: // Type 1
+                case MSG_TYPE_SYM_KEY_REQUEST: // Type 1 - Request Symmetric Key
                     std::cout << "Request for symmetric key\n";
                     break;
                 
-                case MSG_TYPE_SYM_KEY_SEND: // Type 2
+                case MSG_TYPE_SYM_KEY_SEND: // Type 2 - Send Symmetric Key
                 {
                     std::cout << "Symmetric key received.\n";
                     try {
@@ -805,7 +833,7 @@ void handle_pull_messages(tcp::socket& s)
                     break;
                 }
                 
-                case MSG_TYPE_TEXT_MESSAGE: // Type 3
+                case MSG_TYPE_TEXT_MESSAGE: // Type 3 - send text Message
                 {
                     // Find the symmetric key we have for this sender
                     std::string from_uuid_hex = binary_to_hex_ascii(from_uuid_bin);
@@ -825,10 +853,46 @@ void handle_pull_messages(tcp::socket& s)
                     }
                     break;
                 }
+
+                case MSG_TYPE_FILE: // Type 4 - send a file
+                {
+                    std::string from_uuid_hex = binary_to_hex_ascii(from_uuid_bin);
+                    std::string sym_key = g_client_db[from_uuid_hex].symmetric_key;
+
+                    if (sym_key.empty()) {
+                        std::cout << "can’t decrypt message (no symmetric key on file)\n";
+                    } else {
+                        try {
+                            // Decrypt content
+                            AESWrapper aes_decryptor((unsigned char*)sym_key.c_str(), sym_key.length());
+                            std::string decrypted_content = aes_decryptor.decrypt(content.c_str(), content.length());
+
+                            if (msg_type == MSG_TYPE_TEXT_MESSAGE) {
+                                std::cout << decrypted_content << "\n";
+                            }
+                            else { // It's a file! Save it.
+                                // Create a temporary file path
+                                auto temp_path = std::filesystem::temp_directory_path() / ("msg_" + std::to_string(msg_id) + ".tmp");
+                                
+                                // Write binary data to file
+                                std::ofstream outfile(temp_path, std::ios::binary);
+                                outfile.write(decrypted_content.data(), decrypted_content.size());
+                                outfile.close();
+                                
+                                std::cout << "File received! Saved to: " << temp_path << "\n";
+                            }
+                        } catch (std::exception& e) {
+                            std::cerr << "can’t decrypt message (decryption failed)\n";
+                        }
+                    }
+                    break;
+                }
                 
                 default:
                     std::cout << "Unknown message type received.\n";
             }
+            std::cout << ".\n";
+            std::cout << ".\n";
             std::cout << "----<EOM>----\n\n";
         }
     }
@@ -921,7 +985,7 @@ int main()
                 handle_pull_messages(s);
                 continue;
             }
-            else if (users_choice == "150" || users_choice == "151" || users_choice == "152")
+            else if (users_choice == "150" || users_choice == "151" || users_choice == "152" || users_choice == "153")
             {
                 handle_send_message_options(s, users_choice);
                 continue;

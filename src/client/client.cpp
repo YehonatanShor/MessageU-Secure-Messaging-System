@@ -239,16 +239,27 @@ bool load_my_info()
     }
 }
 
-//Handles the entire registration process
+// Reads an entire file into a string (binary safe)
+std::string read_file_content(const std::string& filepath)
+{
+    std::ifstream file(filepath, std::ios::binary); // Open in binary mode!
+    if (!file) {
+        throw std::runtime_error("Cannot open file: " + filepath);
+    }
+    // Read the whole file into a string
+    return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+}
+
+//Handles the entire registration process (Code 110/600)
 void handle_registration(tcp::socket& s)
 {
-    // Check if my.info file already exists
+    // 1. Check if my.info file already exists
     if (is_user_registered()) {
         std::cerr << "Error: User already registered!\n";
         return;
     }
 
-    // Get username from user
+    // 2. Get username from user
     std::cout << "Enter username: ";
     std::string username;
     std::getline(std::cin, username);
@@ -261,28 +272,19 @@ void handle_registration(tcp::socket& s)
         return;
     }
 
-    // Generate new RSA keys - asimmetric key pair
+    // 3. Generate new RSA keys - asimmetric key pair
     std::cout << "Generating RSA keys (this may take a moment)..." << std::endl;
     RSAPrivateWrapper my_keys;
     std::string public_key_bin = my_keys.getPublicKey();
     std::string private_key_bin = my_keys.getPrivateKey();
     std::string private_key_b64 = Base64Wrapper::encode(private_key_bin); // Save private key in Base64
 
-    // Create a 255-byte buffer for the username and copy the username into it
-    std::vector<char> username_payload(USERNAME_FIXED_SIZE, 0); // Fills with 255 null bytes
-    std::memcpy(username_payload.data(), username.c_str(), username.length());
-
-    // Create a 160-byte buffer for the public key
-    std::vector<char> public_key_payload(PUBLIC_KEY_FIXED_SIZE, 0); // Fills with 160 null bytes
-    size_t key_copy_size = std::min((size_t)PUBLIC_KEY_FIXED_SIZE, public_key_bin.length());
-    std::memcpy(public_key_payload.data(), public_key_bin.c_str(), key_copy_size);
-
-    // Build the full request (Header + Payload)
+    // 4. Build the full request (Header + Payload)
     uint32_t payload_size = USERNAME_FIXED_SIZE + PUBLIC_KEY_FIXED_SIZE;
-    
     std::vector<char> request_buffer; // Final request buffer
     request_buffer.reserve(REQUEST_HEADER_SIZE + payload_size); // Pre-allocate memory
 
+    // 4a. Build header
     uint8_t version = CLIENT_VERSION;
     uint16_t code = htons(REQUEST_CODE_REGISTER); // Convert to network byte order
     uint32_t reg_payload_size = htonl(payload_size); // Convert to network byte order
@@ -293,34 +295,39 @@ void handle_registration(tcp::socket& s)
     request_buffer.insert(request_buffer.end(), (char*)&code, (char*)&code + sizeof(code));
     request_buffer.insert(request_buffer.end(), (char*)&reg_payload_size, (char*)&reg_payload_size + sizeof(reg_payload_size));
     
-    // Add payload parts
-    request_buffer.insert(request_buffer.end(), username_payload.begin(), username_payload.end());
-    request_buffer.insert(request_buffer.end(), public_key_payload.begin(), public_key_payload.end());
+    // 4b. Build payload
+    char username_payload[USERNAME_FIXED_SIZE] = {0}; // Fills with 255 null bytes
+    std::memcpy(username_payload, username.c_str(), username.length());
 
-    // Send request
+    char public_key_payload[PUBLIC_KEY_FIXED_SIZE] = {0}; // Fills with 160 null bytes
+    size_t key_copy_size = std::min((size_t)PUBLIC_KEY_FIXED_SIZE, public_key_bin.length());
+    std::memcpy(public_key_payload, public_key_bin.c_str(), key_copy_size);
+
+    // Add payload parts
+    request_buffer.insert(request_buffer.end(), username_payload, username_payload + USERNAME_FIXED_SIZE);
+    request_buffer.insert(request_buffer.end(), public_key_payload, public_key_payload + PUBLIC_KEY_FIXED_SIZE);
+
+    // 5. Send request
     std::cout << "Sending registration request to server..." << std::endl;
     boost::asio::write(s, boost::asio::buffer(request_buffer));
 
-    // Wait for server response (Header)
-    std::vector<char> response_header(RESPONSE_HEADER_SIZE);
-    boost::asio::read(s, boost::asio::buffer(response_header));
+    // 6. Wait for server response (Header)
+    char response_header[RESPONSE_HEADER_SIZE]; // allocate buffer on stack
+    boost::asio::read(s, boost::asio::buffer(response_header, RESPONSE_HEADER_SIZE));
 
-    // Parse response header
+    // 7. Parse response header
     uint16_t response_code; // to hold response code from server
     uint32_t response_payload_size; // to hold payload size from server
-    
-    std::memcpy(&response_code, response_header.data() + SERVER_VERSION_SIZE, RESPONSE_CODE_SIZE);
-    std::memcpy(&response_payload_size, response_header.data() + SERVER_VERSION_SIZE + RESPONSE_CODE_SIZE, RESPONSE_PAYLOAD_SIZE);
-    
-    // Convert from network byte order
+    std::memcpy(&response_code, response_header + SERVER_VERSION_SIZE, RESPONSE_CODE_SIZE);
+    std::memcpy(&response_payload_size, response_header + SERVER_VERSION_SIZE + RESPONSE_CODE_SIZE, RESPONSE_PAYLOAD_SIZE);
     response_code = ntohs(response_code); 
     response_payload_size = ntohl(response_payload_size);
 
-    // Read response payload
+    // 8. Read response payload
     std::vector<char> response_payload(response_payload_size);
     boost::asio::read(s, boost::asio::buffer(response_payload));
 
-    // Process response
+    // 9. Process response
     if (response_code == RESPONSE_CODE_REGISTER_SUCCESS)
     {
         if (response_payload_size != CLIENT_UUID_SIZE) {
@@ -328,30 +335,22 @@ void handle_registration(tcp::socket& s)
             return;
         }
         
-        // 11. Convert binary UUID to ASCII Hex
+        // 9a. Convert binary UUID to ASCII Hex
         std::string uuid_bin(response_payload.begin(), response_payload.end());
         std::string uuid_hex = binary_to_hex_ascii(uuid_bin);
         
         std::cout << "Registration successful! Your UUID is: " << uuid_hex << std::endl; // Print the UUID for debugging
 
-        // 12. Save to my.info
+        // 9b. Save to my.info
         std::ofstream outfile(MY_INFO_FILE);
-        outfile << username << "\n";      // Line 1: Username
-        outfile << uuid_hex << "\n";        // Line 2: UUID (as ASCII Hex)
-        outfile << private_key_b64;     // Line 3: Private Key (Base64)
+        outfile << username << "\n"; // Line 1: Username
+        outfile << uuid_hex << "\n"; // Line 2: UUID (as ASCII Hex)
+        outfile << private_key_b64; // Line 3: Private Key (Base64)
         outfile.close();
 
-        // 13. Load info into RAM for current session
+        // 9c. Load info into RAM for current session
         std::cout << "Loading info into session..." << std::endl;
         load_my_info();
-    }
-    else if (response_code == REQUEST_CODE_CLIENTS_LIST)
-    {
-        std::cerr << "Server reported an error with no details.\n";
-    }
-    else if (response_code == RESPONSE_CODE_GENERAL_ERROR)
-    {
-        std::cerr << "Server reported an error.\n";
     }
     else // Got an error from the server
     {
@@ -370,43 +369,39 @@ void handle_client_list(tcp::socket& s)
     }
 
     // 2. Build the request header (23 bytes)
-    std::vector<char> request_buffer;
-    request_buffer.reserve(REQUEST_HEADER_SIZE);
+    char request_buffer[REQUEST_HEADER_SIZE];
 
-    uint8_t version = CLIENT_VERSION;
+    // 3. Add header parts (*must* send our UUID so the server knows who is asking)
     uint16_t code = htons(REQUEST_CODE_CLIENTS_LIST);
-    uint32_t net_payload_size = htonl(0); // Payload size is 0
+    uint32_t payload_size = htonl(0);
+    std::memcpy(request_buffer, g_my_info.uuid_bin.data(), CLIENT_UUID_SIZE); // insert UUID - 16 bytes
+    request_buffer[CLIENT_UUID_SIZE] = CLIENT_VERSION; // insert clients Version - 1 byte
+    std::memcpy(request_buffer + CLIENT_UUID_SIZE + 1, &code, sizeof(code)); // insert Code - 2 bytes
+    std::memcpy(request_buffer + CLIENT_UUID_SIZE + 1 + 2, &payload_size, sizeof(payload_size)); // insert Payload Size - 4 bytes
 
-    // Add header parts
-    // We *must* send our UUID so the server knows who is asking
-    request_buffer.insert(request_buffer.end(), g_my_info.uuid_bin.begin(), g_my_info.uuid_bin.end());
-    request_buffer.insert(request_buffer.end(), (char*)&version, (char*)&version + sizeof(version));
-    request_buffer.insert(request_buffer.end(), (char*)&code, (char*)&code + sizeof(code));
-    request_buffer.insert(request_buffer.end(), (char*)&net_payload_size, (char*)&net_payload_size + sizeof(net_payload_size));
-    
-    // 3. Send request (no payload)
+    // 4. Send request (no payload)
     std::cout << "Requesting client list from server..." << std::endl;
-    boost::asio::write(s, boost::asio::buffer(request_buffer));
+    boost::asio::write(s, boost::asio::buffer(request_buffer, REQUEST_HEADER_SIZE));
 
-    // 4. Wait for server response (Header)
-    std::vector<char> response_header(RESPONSE_HEADER_SIZE);
-    boost::asio::read(s, boost::asio::buffer(response_header));
+    // 5. Wait for server response (Header)
+    char response_header[RESPONSE_HEADER_SIZE]; // allocate buffer on stack
+    boost::asio::read(s, boost::asio::buffer(response_header, RESPONSE_HEADER_SIZE));
 
-    // 5. Parse response header
+    // 6. Parse response header
     uint16_t response_code;
     uint32_t response_payload_size;
-    std::memcpy(&response_code, response_header.data() + SERVER_VERSION_SIZE, RESPONSE_CODE_SIZE);
-    std::memcpy(&response_payload_size, response_header.data() + SERVER_VERSION_SIZE + RESPONSE_CODE_SIZE, RESPONSE_PAYLOAD_SIZE);
+    std::memcpy(&response_code, response_header + SERVER_VERSION_SIZE, RESPONSE_CODE_SIZE);
+    std::memcpy(&response_payload_size, response_header + SERVER_VERSION_SIZE + RESPONSE_CODE_SIZE, RESPONSE_PAYLOAD_SIZE);
     response_code = ntohs(response_code);
     response_payload_size = ntohl(response_payload_size);
     
-    // 6. Read response payload
+    // 7. Read response payload
     std::vector<char> response_payload(response_payload_size);
     if (response_payload_size > 0) {
         boost::asio::read(s, boost::asio::buffer(response_payload));
     }
 
-    // 7. Process response
+    // 8. Process response
     if (response_code == RESPONSE_CODE_DISPLAYING_CLIENTS_LIST)
     {
         std::cout << "\n--- Registered Clients ---" << std::endl;
@@ -418,7 +413,7 @@ void handle_client_list(tcp::socket& s)
             return;
         }
 
-        // Loop through the payload, one client at a time
+        // 8a. Loop through the payload, one client at a time
         for (size_t i = 0; i < response_payload_size; i += entry_size)
         {
             const char* entry_ptr = response_payload.data() + i;
@@ -432,12 +427,11 @@ void handle_client_list(tcp::socket& s)
             // Print to screen
             std::cout << "Name: " << name << "\nUUID: " << uuid_hex << "\n---\n";
             
-            // Save to our in-RAM database
+            // Save to our RAM database (will get the public key in step 130)
             g_client_db[uuid_hex].username = name;
-            // (We will get the public key in step 130)
         }
     }
-    else
+    else // Got an error from the server
     {
         std::string error_msg(response_payload.begin(), response_payload.end());
         std::cerr << "Server responded with an error: " << error_msg << std::endl;
@@ -469,18 +463,18 @@ void handle_request_public_key(tcp::socket& s)
     }
 
     // 4. Build the request header (23 bytes)
-    std::vector<char> request_buffer;
+    std::vector<char> request_buffer; // Allocate on heap for dynamic size
     request_buffer.reserve(REQUEST_HEADER_SIZE + target_uuid_bin.length());
 
     uint8_t version = CLIENT_VERSION;
-    uint16_t code = htons(REQUEST_CODE_PUBLIC_KEY); // Code 602
-    uint32_t net_payload_size = htonl(target_uuid_bin.length()); // Payload is the 16-byte UUID
+    uint16_t code = htons(REQUEST_CODE_PUBLIC_KEY);
+    uint32_t req_payload_size = htonl(target_uuid_bin.length()); // Payload is the 16-byte UUID
 
     // Add header parts
     request_buffer.insert(request_buffer.end(), g_my_info.uuid_bin.begin(), g_my_info.uuid_bin.end()); // Our UUID
     request_buffer.insert(request_buffer.end(), (char*)&version, (char*)&version + sizeof(version));
     request_buffer.insert(request_buffer.end(), (char*)&code, (char*)&code + sizeof(code));
-    request_buffer.insert(request_buffer.end(), (char*)&net_payload_size, (char*)&net_payload_size + sizeof(net_payload_size));
+    request_buffer.insert(request_buffer.end(), (char*)&req_payload_size, (char*)&req_payload_size + sizeof(req_payload_size));
     
     // 5. Add payload (the target's UUID)
     request_buffer.insert(request_buffer.end(), target_uuid_bin.begin(), target_uuid_bin.end());
@@ -490,19 +484,19 @@ void handle_request_public_key(tcp::socket& s)
     boost::asio::write(s, boost::asio::buffer(request_buffer));
 
     // 7. Wait for server response (Header)
-    std::vector<char> response_header(RESPONSE_HEADER_SIZE);
-    boost::asio::read(s, boost::asio::buffer(response_header));
+    char response_header[RESPONSE_HEADER_SIZE]; // allocate on stack
+    boost::asio::read(s, boost::asio::buffer(response_header, RESPONSE_HEADER_SIZE));
 
     // 8. Parse response header
     uint16_t response_code;
     uint32_t response_payload_size;
-    std::memcpy(&response_code, response_header.data() + SERVER_VERSION_SIZE, RESPONSE_CODE_SIZE);
-    std::memcpy(&response_payload_size, response_header.data() + SERVER_VERSION_SIZE + RESPONSE_CODE_SIZE, RESPONSE_PAYLOAD_SIZE);
+    std::memcpy(&response_code, response_header + SERVER_VERSION_SIZE, RESPONSE_CODE_SIZE);
+    std::memcpy(&response_payload_size, response_header + SERVER_VERSION_SIZE + RESPONSE_CODE_SIZE, RESPONSE_PAYLOAD_SIZE);
     response_code = ntohs(response_code);
     response_payload_size = ntohl(response_payload_size);
 
     // 9. Read response payload
-    std::vector<char> response_payload(response_payload_size);
+    std::vector<char> response_payload(response_payload_size); // allocate on heap for dynamic size
     if (response_payload_size > 0) {
         boost::asio::read(s, boost::asio::buffer(response_payload));
     }
@@ -517,39 +511,27 @@ void handle_request_public_key(tcp::socket& s)
             return;
         }
 
-        // Extract data
+        // 10a. Extract data
         std::string target_uuid_bin(response_payload.data(), CLIENT_UUID_SIZE);
         std::string target_pub_key(response_payload.data() + CLIENT_UUID_SIZE, PUBLIC_KEY_FIXED_SIZE);
         
         std::string target_uuid_hex = binary_to_hex_ascii(target_uuid_bin);
 
-        // 11. Store the public key in our in-RAM database
+        // 10b. Store the public key in our in-RAM database
         g_client_db[target_uuid_hex].public_key = target_pub_key;
         
         std::cout << "Successfully received and stored public key for:\n";
         std::cout << "Name: " << g_client_db[target_uuid_hex].username << "\n";
         std::cout << "UUID: " << target_uuid_hex << "\n";
-        //std::cout << "public key: " << Base64Wrapper::encode(target_pub_key) << "\n"; // Print public key in Base64 for readability
     }
-    else
+    else // Got an error from the server
     {
         std::string error_msg(response_payload.begin(), response_payload.end());
         std::cerr << "Server responded with an error: " << error_msg << std::endl;
     }
 }
 
-// Reads an entire file into a string (binary safe)
-std::string read_file_content(const std::string& filepath)
-{
-    std::ifstream file(filepath, std::ios::binary); // Open in binary mode!
-    if (!file) {
-        throw std::runtime_error("Cannot open file: " + filepath);
-    }
-    // Read the whole file into a string
-    return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-}
-
-// Main handler for options 150, 151, 152 - gets the target user and calls the appropriate function
+// Handler for options 150, 151, 152 - gets user choice and calls the appropriate function
 void handle_send_message_options(tcp::socket& s, const std::string& menu_choice)
 {
     // 1. Check if user is registered
@@ -578,30 +560,29 @@ void handle_send_message_options(tcp::socket& s, const std::string& menu_choice)
     uint8_t message_type = 0;
     std::string message_content; // This will be the *encrypted* content
 
-    // --- Logic for 151: Request Symmetric Key ---
+    // 5. Logic for 151: Request Symmetric Key
     if (menu_choice == "151")
     {
         message_type = MSG_TYPE_SYM_KEY_REQUEST;
-        // message_content remains empty, as requested
     }
-    // --- Logic for 152: Send Symmetric Key ---
+    // 6. Logic for 152: Send Symmetric Key
     else if (menu_choice == "152")
     {
         message_type = MSG_TYPE_SYM_KEY_SEND;
         
-        // 4a. Check if we have the target's public key
+        // 6a. Check if we have the target's public key
         if (g_client_db[target_uuid_hex].public_key.empty()) {
             std::cerr << "Error: You don't have the public key for '" << target_username << "'.\n";
             std::cerr << "Try running option 130 to get their key first.\n";
             return;
         }
 
-        // 4b. Generate a new symmetric key (AES key)
+        // 6b. Generate a new symmetric key (AES key)
         unsigned char aes_key_bytes[AESWrapper::DEFAULT_KEYLENGTH];
         AESWrapper::GenerateKey(aes_key_bytes, AESWrapper::DEFAULT_KEYLENGTH);
         std::string aes_key_bin((char*)aes_key_bytes, AESWrapper::DEFAULT_KEYLENGTH);
 
-        // 4c. Encrypt the *symmetric* key using the *target's public* key
+        // 6c. Encrypt the *symmetric* key using the *target's public* key
         try {
             RSAPublicWrapper target_public_key(g_client_db[target_uuid_hex].public_key);
             message_content = target_public_key.encrypt(aes_key_bin); // Encrypt the AES key
@@ -610,14 +591,14 @@ void handle_send_message_options(tcp::socket& s, const std::string& menu_choice)
             return;
         }
 
-        // 4d. Save this symmetric key in our RAM DB for *this user*
+        // 6d. Save this symmetric key in our RAM DB for *this user*
         g_client_db[target_uuid_hex].symmetric_key = aes_key_bin;
         std::cout << "Generated and sent a new symmetric key to " << target_username << ".\n";
     }
-    // --- Logic for 150 (Text) AND 153 (File) ---
+    // 7. Logic for sending messages - 150 (Text) or 153 (File)
     else if (menu_choice == "150" || menu_choice == "153")
     {
-        // 4a. Check for symmetric key
+        // 7a. Check for symmetric key
         std::string sym_key = g_client_db[target_uuid_hex].symmetric_key;
         if (sym_key.empty()) {
             std::cerr << "Error: You don't have a symmetric key for '" << target_username << "'.\n";
@@ -626,13 +607,15 @@ void handle_send_message_options(tcp::socket& s, const std::string& menu_choice)
 
         std::string data_to_encrypt;
 
-        if (menu_choice == "150") { // Text Message
+        // 7b. Text Message
+        if (menu_choice == "150") { 
             message_type = MSG_TYPE_TEXT_MESSAGE;
             std::cout << "Enter your message: ";
             std::getline(std::cin, data_to_encrypt);
             if (data_to_encrypt.empty()) return;
         }
-        else { // File Transfer (153)
+        // 7c. File Transfer (153)
+        else {
             message_type = MSG_TYPE_FILE;
             std::cout << "Enter full file path: ";
             std::string filepath;
@@ -643,24 +626,26 @@ void handle_send_message_options(tcp::socket& s, const std::string& menu_choice)
             try {
                 data_to_encrypt = read_file_content(filepath);
                 std::cout << "Read " << data_to_encrypt.size() << " bytes from file.\n";
-            } catch (std::exception& e) {
+            } 
+            catch (std::exception& e) {
                 std::cerr << "Error: " << e.what() << "\n"; // Prints "found not file" equivalent
                 return;
             }
         }
 
-        // 4c. Encrypt the data (text or file content)
+        // 7d. Encrypt the data (text or file content)
         try {
             AESWrapper aes_encryptor((unsigned char*)sym_key.c_str(), sym_key.length());
             message_content = aes_encryptor.encrypt(data_to_encrypt.c_str(), data_to_encrypt.length());
-        } catch (std::exception& e) {
+        } 
+        catch (std::exception& e) {
             std::cerr << "Error encrypting: " << e.what() << "\n";
             return;
         }
     }
 
-    // 5. Build the inner payload (for request 603)
-    std::vector<char> message_payload;
+    // 8. Build the inner payload (for request 603)
+    std::vector<char> message_payload; // Allocate on heap for dynamic size
     uint32_t content_size_net = htonl(message_content.length());
 
     message_payload.insert(message_payload.end(), target_uuid_bin.begin(), target_uuid_bin.end()); // 16 bytes Target UUID
@@ -668,47 +653,47 @@ void handle_send_message_options(tcp::socket& s, const std::string& menu_choice)
     message_payload.insert(message_payload.end(), (char*)&content_size_net, (char*)&content_size_net + sizeof(content_size_net)); // 4 bytes Content Size
     message_payload.insert(message_payload.end(), message_content.begin(), message_content.end()); // N bytes Content
 
-    // 6. Build the full request (Header + Payload)
-    std::vector<char> request_buffer;
+    // 9. Build the full request (Header + Payload)
+    std::vector<char> request_buffer; // Allocate on heap for dynamic size
     uint8_t version = CLIENT_VERSION;
     uint16_t code = htons(REQUEST_CODE_SEND_TEXT_MESSAGE); // Code 603
     uint32_t net_payload_size = htonl(message_payload.size());
 
-    // Add header parts
+    // 9a. Add header parts
     request_buffer.insert(request_buffer.end(), g_my_info.uuid_bin.begin(), g_my_info.uuid_bin.end()); // Our UUID
     request_buffer.insert(request_buffer.end(), (char*)&version, (char*)&version + sizeof(version));
     request_buffer.insert(request_buffer.end(), (char*)&code, (char*)&code + sizeof(code));
     request_buffer.insert(request_buffer.end(), (char*)&net_payload_size, (char*)&net_payload_size + sizeof(net_payload_size));
     
-    // Add payload part
+    // 9b. Add payload part
     request_buffer.insert(request_buffer.end(), message_payload.begin(), message_payload.end());
 
-    // 7. Send request
+    // 10. Send request
     std::cout << "Sending message to server..." << std::endl;
     boost::asio::write(s, boost::asio::buffer(request_buffer));
 
-    // 8. Wait for server response (Header)
-    std::vector<char> response_header(RESPONSE_HEADER_SIZE);
-    boost::asio::read(s, boost::asio::buffer(response_header));
+    // 11. Wait for server response (Header)
+    char response_header[RESPONSE_HEADER_SIZE]; // מוקצה על ה-Stack
+    boost::asio::read(s, boost::asio::buffer(response_header, RESPONSE_HEADER_SIZE));
 
-    // 9. Parse response header
+    // 12. Parse response header
     uint16_t response_code;
     uint32_t response_payload_size;
-    std::memcpy(&response_code, response_header.data() + SERVER_VERSION_SIZE, RESPONSE_CODE_SIZE);
-    std::memcpy(&response_payload_size, response_header.data() + SERVER_VERSION_SIZE + RESPONSE_CODE_SIZE, RESPONSE_PAYLOAD_SIZE);
+    std::memcpy(&response_code, response_header + SERVER_VERSION_SIZE, RESPONSE_CODE_SIZE);
+    std::memcpy(&response_payload_size, response_header + SERVER_VERSION_SIZE + RESPONSE_CODE_SIZE, RESPONSE_PAYLOAD_SIZE);
     response_code = ntohs(response_code);
     response_payload_size = ntohl(response_payload_size);
 
-    // 10. Read response payload
+    // 13. Read response payload
     std::vector<char> response_payload(response_payload_size);
     if (response_payload_size > 0) {
         boost::asio::read(s, boost::asio::buffer(response_payload));
     }
 
-    // 11. Process response
+    // 14. Process response
     if (response_code == RESPONSE_CODE_SEND_TEXT_MESSAGE)
     {
-        // Expected payload: Target's UUID (16) + Message ID (4)
+        // 14a. Expected payload: Target's UUID (16) + Message ID (4)
         if (response_payload_size != CLIENT_UUID_SIZE + sizeof(uint32_t)) {
             std::cerr << "Error: Server sent a corrupt message confirmation.\n";
             return;
@@ -720,15 +705,14 @@ void handle_send_message_options(tcp::socket& s, const std::string& menu_choice)
 
         std::cout << "Server confirmed message sent. Message ID: " << message_id << "\n";
     }
-    else
+    else // Got an error from the server
     {
         std::string error_msg(response_payload.begin(), response_payload.end());
         std::cerr << "Server responded with an error: " << error_msg << std::endl;
     }
 }
 
-// client.cpp
-
+// Handles pulling waiting messages from the server (Code 140/604)
 void handle_pull_messages(tcp::socket& s)
 {
     // 1. Check if user is registered
@@ -737,65 +721,67 @@ void handle_pull_messages(tcp::socket& s)
         return;
     }
 
-    // 2. Build the request header (23 bytes, no payload)
-    // Using manual buffer instead of vector for efficiency
-    char request_buffer[REQUEST_HEADER_SIZE];
+    // 2. Build request header (23 bytes, no payload)
+    char request_buffer[REQUEST_HEADER_SIZE]; // allocate on stack for efficiency
+    uint16_t code = htons(REQUEST_CODE_WAITING_MESSAGES);
+    uint32_t net_payload_size = htonl(0); 
     
-    // 16 bytes UUID
-    std::memcpy(request_buffer, g_my_info.uuid_bin.data(), CLIENT_UUID_SIZE);
-    // 1 byte - client version
-    request_buffer[CLIENT_UUID_SIZE] = CLIENT_VERSION;
-    // 2 bytes - Request Code (604)
-    uint16_t request_code = htons(REQUEST_CODE_WAITING_MESSAGES); // Code 604
-    std::memcpy(request_buffer + CLIENT_UUID_SIZE + 1, &request_code, sizeof(uint16_t));
-    // 4 bytes - payload size (0)
-    uint32_t request_payload_size = htonl(0); // Payload size is 0
-    std::memcpy(request_buffer + CLIENT_UUID_SIZE + 1 + 2, &request_payload_size, sizeof(uint32_t));
+    std::memcpy(request_buffer, g_my_info.uuid_bin.data(), CLIENT_UUID_SIZE); // insert ClientID - 16 bytes
+    request_buffer[CLIENT_UUID_SIZE] = CLIENT_VERSION; // insert client Version - 1 byte
+    std::memcpy(request_buffer + CLIENT_UUID_SIZE + CLIENT_VERSION_SIZE, &code, sizeof(code)); // insert request Code - 2 bytes
+    std::memcpy(request_buffer + CLIENT_UUID_SIZE + CLIENT_VERSION_SIZE + REQUEST_CODE_SIZE, &net_payload_size, sizeof(net_payload_size)); // insert Payload Size (0) - 4 bytes
 
-     // 3. Send request
+    // 3. Send request
     std::cout << "Requesting waiting messages from server..." << std::endl;
     boost::asio::write(s, boost::asio::buffer(request_buffer, REQUEST_HEADER_SIZE));
 
-
     // 4. Wait for server response (Header)
-    char response_header[RESPONSE_HEADER_SIZE];
+    char response_header[RESPONSE_HEADER_SIZE]; // allocate on stack for efficiency
     boost::asio::read(s, boost::asio::buffer(response_header, RESPONSE_HEADER_SIZE));
 
     // 5. Parse response header
     uint16_t response_code;
-    uint32_t total_payload_size; // total size of all messages payloads
+    uint32_t total_payload_size; // Total size of *all* messages combined
     std::memcpy(&response_code, response_header + SERVER_VERSION_SIZE, RESPONSE_CODE_SIZE);
     std::memcpy(&total_payload_size, response_header + SERVER_VERSION_SIZE + RESPONSE_CODE_SIZE, RESPONSE_PAYLOAD_SIZE);
     response_code = ntohs(response_code);
     total_payload_size = ntohl(total_payload_size);
 
-    // check that response code is correct
-    if (response_code != RESPONSE_CODE_PULL_WAITING_MESSAGE) {
-        std::cerr << "Server responded with an error (Wrong Code " << response_code << ")\n";
+    // 6. Process response
+    if (response_code != RESPONSE_CODE_PULL_WAITING_MESSAGE)
+    {
+        // 6a. Handle error response (which might have its own payload)
+        std::vector<char> error_payload(total_payload_size);
+        if (total_payload_size > 0) {
+            boost::asio::read(s, boost::asio::buffer(error_payload));
+        }
+        std::string error_msg(error_payload.begin(), error_payload.end());
+        std::cerr << "Server responded with an error: " << error_msg << std::endl;
         return;
     }
 
+    // 7. check if there are any messages
     if (total_payload_size == 0) {
         std::cout << "You have no new messages.\n";
         return;
     }
-
+    
     std::cout << "\n--- Received Messages ---" << std::endl;
     
+    // 8. Loop until we have processed all the bytes the server promised
     size_t bytes_processed = 0;
-    // 6. Process response messages one by one until we reach total payload size
     while (bytes_processed < total_payload_size)
     {
-        // 6a. read header of a single message
-        // size of header: 16 + 4 + 1 + 4 = 25 bytes (FromUUID + MsgID + Type + Size)
-        const size_t SINGLE_MSG_HEADER_SIZE = CLIENT_UUID_SIZE + 4 + 1 + 4;
-        char msg_header[SINGLE_MSG_HEADER_SIZE];
+        // 8a. Read the header for *one* message
+        // Header format (25 bytes): FromUUID(16) + MsgID(4) + Type(1) + ContentSize(4)
+        const size_t SINGLE_MSG_HEADER_SIZE = CLIENT_UUID_SIZE + sizeof(uint32_t) + sizeof(uint8_t) + sizeof(uint32_t);
+        char msg_header[SINGLE_MSG_HEADER_SIZE]; // allocation on stack for efficiency
         
-        // Blocking read from socket for header only
+        // 8b. Blocking read from socket for header only
         boost::asio::read(s, boost::asio::buffer(msg_header, SINGLE_MSG_HEADER_SIZE));
-        bytes_processed += SINGLE_MSG_HEADER_SIZE;
+        bytes_processed += SINGLE_MSG_HEADER_SIZE; // Count these 25 bytes
 
-        // 6b.Parse the message header
+        // 8c. Parse the single message header
         size_t cursor = 0;
         std::string from_uuid_bin(msg_header + cursor, CLIENT_UUID_SIZE);
         cursor += CLIENT_UUID_SIZE;
@@ -811,63 +797,64 @@ void handle_pull_messages(tcp::socket& s)
         uint32_t msg_content_size;
         std::memcpy(&msg_content_size, msg_header + cursor, sizeof(uint32_t));
         msg_content_size = ntohl(msg_content_size);
-        cursor += sizeof(uint32_t);
-
-        // 6c. Extract the message content
-        std::vector<char> content_buffer(msg_content_size); // Allocate vector of exact current size message content
-        boost::asio::read(s, boost::asio::buffer(content_buffer));
-        bytes_processed += msg_content_size;
         
-        // convert content to string for easier handling
+        // 8d. Read the message content
+        std::vector<char> content_buffer(msg_content_size); // allocate on heap for dynamic size
+        if (msg_content_size > 0) {
+            boost::asio::read(s, boost::asio::buffer(content_buffer));
+        }
+        bytes_processed += msg_content_size; // Count these N bytes
+        
         std::string content(content_buffer.begin(), content_buffer.end());
 
-        // 6d. Display the message based on its type
+        // 8e. Display the message (same logic as your code)
         std::cout << "From: " << find_name_by_uuid(from_uuid_bin) << "\n";
         std::cout << "Content:\n";
 
+        // 8f. Handle based on message type
         switch (msg_type)
         {
-            // Type 1 - Request Symmetric Key
-            case MSG_TYPE_SYM_KEY_REQUEST: 
+            case MSG_TYPE_SYM_KEY_REQUEST: // Type 1 - Request Symmetric Key
                 std::cout << "Request for symmetric key\n";
                 break;
             
-            // Type 2 - Send Symmetric Key
-            case MSG_TYPE_SYM_KEY_SEND:
+            case MSG_TYPE_SYM_KEY_SEND: // Type 2 - Send Symmetric Key
+            {
                 std::cout << "Symmetric key received.\n";
                 try {
-                     // Decrypt the symmetric key using our *private* key
+                    // Decrypt the symmetric key using our *private* key
                     std::string decrypted_sym_key = g_my_info.keys->decrypt(content);
                     // Store it in our RAM DB
                     std::string from_uuid_hex = binary_to_hex_ascii(from_uuid_bin);
                     g_client_db[from_uuid_hex].symmetric_key = decrypted_sym_key;
-                    std::cout << "(Symmetric key stored successfully)\n";
-                } catch (std::exception& e) {
+                } 
+                catch (std::exception& e) {
                     std::cout << "Error decrypting symmetric key\n";
                 }
                 break;
+            }
             
             case MSG_TYPE_TEXT_MESSAGE: // Type 3 - send text Message
             case MSG_TYPE_FILE: // Type 4 - File Transfer
             {
-                 // Find the symmetric key we have for this sender
+                // Find the symmetric key we have for this sender
                 std::string from_uuid_hex = binary_to_hex_ascii(from_uuid_bin);
                 std::string sym_key = g_client_db[from_uuid_hex].symmetric_key;
 
                 if (sym_key.empty()) {
                     std::cout << "can't decrypt message (no symmetric key)\n";
-                } else {
+                } 
+                else {
                     try {
                         // Decrypt the message content using the stored AES key
                         AESWrapper aes((unsigned char*)sym_key.c_str(), sym_key.length());
                         std::string decrypted = aes.decrypt(content.c_str(), content.length());
 
-                        // if text message
+                        // if text message print to console
                         if (msg_type == MSG_TYPE_TEXT_MESSAGE) {
-                            // Print to console; if file, save to temp file
                             std::cout << decrypted << "\n";
                         } 
-                        // else - if file
+                        // else - if file if file save to temp file
                         else {
                             auto temp_path = std::filesystem::temp_directory_path() / ("msg_" + std::to_string(msg_id) + ".tmp");
                             // Write binary data to temp file
@@ -876,7 +863,8 @@ void handle_pull_messages(tcp::socket& s)
                             outfile.close();
                             std::cout << "File received! Saved to: " << temp_path << "\n";
                         }
-                    } catch (std::exception&) {
+                    } 
+                    catch (std::exception&) {
                         std::cout << "can't decrypt message\n";
                     }
                 }
@@ -890,182 +878,6 @@ void handle_pull_messages(tcp::socket& s)
         std::cout << "----<EOM>----\n\n";
     }
 }
-
-/* Handles requesting waiting messages from the server (Code 140) 
-void handle_pull_messages(tcp::socket& s)
-{
-    // 1. Check if user is registered
-    if (!g_is_registered) {
-        std::cerr << "Error: You must be registered to perform this action.\n";
-        return;
-    }
-
-    // 2. Build the request header (23 bytes, no payload)
-    std::vector<char> request_buffer;
-    request_buffer.reserve(REQUEST_HEADER_SIZE);
-
-    uint8_t version = CLIENT_VERSION;
-    uint16_t code = htons(REQUEST_CODE_WAITING_MESSAGES); // Code 604
-    uint32_t net_payload_size = htonl(0); // Payload size is 0
-
-    // Add header parts
-    request_buffer.insert(request_buffer.end(), g_my_info.uuid_bin.begin(), g_my_info.uuid_bin.end()); // Our UUID
-    request_buffer.insert(request_buffer.end(), (char*)&version, (char*)&version + sizeof(version));
-    request_buffer.insert(request_buffer.end(), (char*)&code, (char*)&code + sizeof(code));
-    request_buffer.insert(request_buffer.end(), (char*)&net_payload_size, (char*)&net_payload_size + sizeof(net_payload_size));
-    
-    // 3. Send request
-    std::cout << "Requesting waiting messages from server..." << std::endl;
-    boost::asio::write(s, boost::asio::buffer(request_buffer));
-
-    // 4. Wait for server response (Header)
-    std::vector<char> response_header(RESPONSE_HEADER_SIZE);
-    boost::asio::read(s, boost::asio::buffer(response_header));
-
-    // 5. Parse response header
-    uint16_t response_code;
-    uint32_t response_payload_size;
-    std::memcpy(&response_code, response_header.data() + SERVER_VERSION_SIZE, RESPONSE_CODE_SIZE);
-    std::memcpy(&response_payload_size, response_header.data() + SERVER_VERSION_SIZE + RESPONSE_CODE_SIZE, RESPONSE_PAYLOAD_SIZE);
-    response_code = ntohs(response_code);
-    response_payload_size = ntohl(response_payload_size);
-
-    // 6. Read response payload (which contains all the messages)
-    std::vector<char> response_payload(response_payload_size);
-    if (response_payload_size > 0) {
-        boost::asio::read(s, boost::asio::buffer(response_payload));
-    }
-
-    // 7. Process response
-    if (response_code == RESPONSE_CODE_PULL_WAITING_MESSAGE)
-    {
-        if (response_payload_size == 0) {
-            std::cout << "You have no new messages.\n";
-            return;
-        }
-        
-        std::cout << "\n--- Received Messages ---" << std::endl;
-        
-        // 8. Loop through the payload, one message at a time
-        size_t cursor = 0;
-        while (cursor < response_payload_size)
-        {
-            // 8a. Parse the message header (FromUUID, MsgID, Type, ContentSize)
-            std::string from_uuid_bin(response_payload.data() + cursor, CLIENT_UUID_SIZE);
-            cursor += CLIENT_UUID_SIZE;
-
-            uint32_t msg_id;
-            std::memcpy(&msg_id, response_payload.data() + cursor, sizeof(uint32_t));
-            msg_id = ntohl(msg_id);
-            cursor += sizeof(uint32_t);
-
-            uint8_t msg_type = response_payload[cursor];
-            cursor += sizeof(uint8_t);
-
-            uint32_t msg_content_size;
-            std::memcpy(&msg_content_size, response_payload.data() + cursor, sizeof(uint32_t));
-            msg_content_size = ntohl(msg_content_size);
-            cursor += sizeof(uint32_t);
-
-            // 8b. Extract the message content
-            std::string content(response_payload.data() + cursor, msg_content_size);
-            cursor += msg_content_size;
-
-            // 8c. Display the message based on its type
-            std::cout << "From: " << find_name_by_uuid(from_uuid_bin) << "\n";
-            std::cout << "Content:\n";
-
-            switch (msg_type)
-            {
-                case MSG_TYPE_SYM_KEY_REQUEST: // Type 1 - Request Symmetric Key
-                    std::cout << "Request for symmetric key\n";
-                    break;
-                
-                case MSG_TYPE_SYM_KEY_SEND: // Type 2 - Send Symmetric Key
-                {
-                    std::cout << "Symmetric key received.\n";
-                    try {
-                        // Decrypt the symmetric key using our *private* key
-                        std::string decrypted_sym_key = g_my_info.keys->decrypt(content);
-                        // Store it in our RAM DB
-                        std::string from_uuid_hex = binary_to_hex_ascii(from_uuid_bin);
-                        g_client_db[from_uuid_hex].symmetric_key = decrypted_sym_key;
-                        std::cout << "(Symmetric key stored successfully)\n";
-                    } catch (std::exception& e) {
-                        std::cerr << "(Error decrypting symmetric key: " << e.what() << ")\n";
-                    }
-                    break;
-                }
-                
-                case MSG_TYPE_TEXT_MESSAGE: // Type 3 - send text Message
-                {
-                    // Find the symmetric key we have for this sender
-                    std::string from_uuid_hex = binary_to_hex_ascii(from_uuid_bin);
-                    std::string sym_key = g_client_db[from_uuid_hex].symmetric_key;
-
-                    if (sym_key.empty()) {
-                        std::cout << "can’t decrypt message (no symmetric key on file)\n";
-                    } else {
-                        try {
-                            // Decrypt the message using the stored AES key
-                            AESWrapper aes_decryptor((unsigned char*)sym_key.c_str(), sym_key.length());
-                            std::string decrypted_text = aes_decryptor.decrypt(content.c_str(), content.length());
-                            std::cout << decrypted_text << "\n";
-                        } catch (std::exception& e) {
-                            std::cerr << "can’t decrypt message (decryption failed)\n";
-                        }
-                    }
-                    break;
-                }
-
-                case MSG_TYPE_FILE: // Type 4 - send a file
-                {
-                    std::string from_uuid_hex = binary_to_hex_ascii(from_uuid_bin);
-                    std::string sym_key = g_client_db[from_uuid_hex].symmetric_key;
-
-                    if (sym_key.empty()) {
-                        std::cout << "can’t decrypt message (no symmetric key on file)\n";
-                    } else {
-                        try {
-                            // Decrypt content
-                            AESWrapper aes_decryptor((unsigned char*)sym_key.c_str(), sym_key.length());
-                            std::string decrypted_content = aes_decryptor.decrypt(content.c_str(), content.length());
-
-                            if (msg_type == MSG_TYPE_TEXT_MESSAGE) {
-                                std::cout << decrypted_content << "\n";
-                            }
-                            else { // It's a file! Save it.
-                                // Create a temporary file path
-                                auto temp_path = std::filesystem::temp_directory_path() / ("msg_" + std::to_string(msg_id) + ".tmp");
-                                
-                                // Write binary data to file
-                                std::ofstream outfile(temp_path, std::ios::binary);
-                                outfile.write(decrypted_content.data(), decrypted_content.size());
-                                outfile.close();
-                                
-                                std::cout << "File received! Saved to: " << temp_path << "\n";
-                            }
-                        } catch (std::exception& e) {
-                            std::cerr << "can’t decrypt message (decryption failed)\n";
-                        }
-                    }
-                    break;
-                }
-                
-                default:
-                    std::cout << "Unknown message type received.\n";
-            }
-            std::cout << ".\n";
-            std::cout << ".\n";
-            std::cout << "----<EOM>----\n\n";
-        }
-    }
-    else
-    {
-        std::string error_msg(response_payload.begin(), response_payload.end());
-        std::cerr << "Server responded with an error: " << error_msg << std::endl;
-    }
-} */
 
 // Loads server host and port from server.info file
 std::pair<std::string, std::string> load_server_info()
@@ -1097,7 +909,7 @@ int main()
         // 1. Load my.info *before* anything else
         load_my_info(); 
 
-        // Load server info from file
+        // 2. Load server info from file
         auto server_info = load_server_info();
         host = server_info.first; 
         port = server_info.second;
@@ -1112,6 +924,7 @@ int main()
 
     try
     {
+        // 3. Set up Boost.Asio connection
         boost::asio::io_context io_context;
         tcp::socket s(io_context);
         tcp::resolver resolver(io_context);
@@ -1119,7 +932,7 @@ int main()
         
         std::cout << "Connected successfully." << std::endl;
 
-        // --- Main Menu Loop ---
+        // Main Menu Loop
         std::string users_choice;
         while (true)
         {
@@ -1159,7 +972,8 @@ int main()
                 std::cout << "Invalid option. Please try again.\n"; // unrecognized input
             }
         }
-        
+
+        delete g_my_info.keys; // Clean up RSA keys
         s.close(); // Close the socket
         std::cout << "Disconnected from server." << std::endl;
     }

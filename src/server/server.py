@@ -51,22 +51,26 @@ RESPONSE_CODE_SIZE = 2;
 RESPONSE_PAYLOAD_SIZE = 4;
 RESPONSE_HEADER_SIZE = 1 + 2 + 4; # Version(1) + Code(2) + PayloadSize(4)
 
-# --- Database Manager ---
+# --- Database Manager---
 class DatabaseManager:
     # Initializes the database connection and creates tables if they don't exist.
     def __init__(self, db_file):
         self.db_file = db_file
-        self._initialize_db()
+        try:
+            self._initialize_db()
+        except sqlite3.Error as e:
+            print(f"FATAL DB ERROR: Could not initialize database: {e}")
+            raise # Re-raise exception to stop the server if DB can't be created
 
     # Internal method to get a new DB connection
     def _get_connection(self):
-        return sqlite3.connect(self.db_file)
+        # The connection itself can fail (e.g., permissions)
+        return sqlite3.connect(self.db_file, timeout=5) # Added timeout
 
     # Internal method to create the database tables if they don't exist
     def _initialize_db(self):
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            # Table: clients
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS clients (
                     ID BLOB PRIMARY KEY,
@@ -75,9 +79,6 @@ class DatabaseManager:
                     LastSeen TEXT NOT NULL
                 )
             ''')
-            # Table: messages
-            # AUTOINCREMENT for unique message IDs
-            # Foreign keys to clients table
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS messages (
                     ID INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -94,9 +95,12 @@ class DatabaseManager:
 
     # Updates the LastSeen timestamp for a client   
     def update_last_seen(self, client_uuid_bytes):
-        with self._get_connection() as conn:
-            conn.execute("UPDATE clients SET LastSeen = ? WHERE ID = ?", 
-                         (datetime.now().isoformat(), client_uuid_bytes))
+        try:
+            with self._get_connection() as conn:
+                conn.execute("UPDATE clients SET LastSeen = ? WHERE ID = ?", 
+                             (datetime.now().isoformat(), client_uuid_bytes))
+        except sqlite3.Error as e:
+            print(f"DB Error (update_last_seen): {e}")
 
     # Registers a new client. Returns True on success, False if username exists
     def register_client(self, uuid_bytes, username, public_key):
@@ -105,51 +109,80 @@ class DatabaseManager:
                 conn.execute("INSERT INTO clients (ID, UserName, PublicKey, LastSeen) VALUES (?, ?, ?, ?)",
                              (uuid_bytes, username, public_key, datetime.now().isoformat()))
             return True
-        except sqlite3.IntegrityError:
-            return False  # Username already exists
+        except sqlite3.IntegrityError: # Username already exists
+            return False  
+        except sqlite3.Error as e: # Catch any other DB error (e.g., disk full, locked)
+            print(f"DB Error (register_client): {e}")
+            return False
 
     # Checks if a client exists by UUID
     def client_exists(self, uuid_bytes):
-        with self._get_connection() as conn:
-            cursor = conn.execute("SELECT 1 FROM clients WHERE ID = ?", (uuid_bytes,))
-            return cursor.fetchone() is not None
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute("SELECT 1 FROM clients WHERE ID = ?", (uuid_bytes,))
+                return cursor.fetchone() is not None
+        except sqlite3.Error as e:
+            print(f"DB Error (client_exists): {e}")
+            return False # Assume not exists if DB fails
 
     # Retrieves the username for a given client UUID
     def get_client_name(self, uuid_bytes):
-        with self._get_connection() as conn:
-            cursor = conn.execute("SELECT UserName FROM clients WHERE ID = ?", (uuid_bytes,))
-            row = cursor.fetchone()
-            return row[0] if row else None
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute("SELECT UserName FROM clients WHERE ID = ?", (uuid_bytes,))
+                row = cursor.fetchone()
+                return row[0] if row else None
+        except sqlite3.Error as e:
+            print(f"DB Error (get_client_name): {e}")
+            return None
 
     # Retrieves the public key and username for a given client UUID
     def get_public_key(self, uuid_bytes):
-        with self._get_connection() as conn:
-            cursor = conn.execute("SELECT PublicKey, UserName FROM clients WHERE ID = ?", (uuid_bytes,))
-            return cursor.fetchone()
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute("SELECT PublicKey, UserName FROM clients WHERE ID = ?", (uuid_bytes,))
+                return cursor.fetchone()
+        except sqlite3.Error as e:
+            print(f"DB Error (get_public_key): {e}")
+            return None
 
     # Returns a list of (uuid_bytes, username) for all clients
     def get_all_clients(self):
-        with self._get_connection() as conn:
-            cursor = conn.execute("SELECT ID, UserName FROM clients")
-            return cursor.fetchall()
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute("SELECT ID, UserName FROM clients")
+                return cursor.fetchall()
+        except sqlite3.Error as e:
+            print(f"DB Error (get_all_clients): {e}")
+            return [] # Return empty list on failure
 
     # Saves a message to the database and returns the message ID
     def save_message(self, to_client, from_client, msg_type, content):
-        with self._get_connection() as conn:
-            cursor = conn.execute("INSERT INTO messages (ToClient, FromClient, Type, Content) VALUES (?, ?, ?, ?)",
-                                  (to_client, from_client, msg_type, content))
-            return cursor.lastrowid
+        try:
+            with self._get_connection() as conn:
+                cursor = conn.execute("INSERT INTO messages (ToClient, FromClient, Type, Content) VALUES (?, ?, ?, ?)",
+                                      (to_client, from_client, msg_type, content))
+                return cursor.lastrowid # Return the auto-generated message ID
+        except sqlite3.Error as e:
+            print(f"DB Error (save_message): {e}")
+            raise e # Re-raise to let the handler know it failed
 
     # Retrieves and deletes all waiting messages for a client
     def get_waiting_messages(self, client_uuid_bytes):
         messages = []
-        with self._get_connection() as conn:
-            # 1. Get messages
-            cursor = conn.execute("SELECT ID, FromClient, Type, Content FROM messages WHERE ToClient = ?", (client_uuid_bytes,))
-            messages = cursor.fetchall()
-            # 2. Delete pulled messages (ensure atomic transaction with the same connection)
-            conn.execute("DELETE FROM messages WHERE ToClient = ?", (client_uuid_bytes,))
-        return messages
+        try:
+            with self._get_connection() as conn:
+                # 'with conn:' creates an atomic transaction
+                with conn:
+                    # 1. Get messages
+                    cursor = conn.execute("SELECT ID, FromClient, Type, Content FROM messages WHERE ToClient = ?", (client_uuid_bytes,))
+                    messages = cursor.fetchall()
+                    # 2. Delete pulled messages
+                    conn.execute("DELETE FROM messages WHERE ToClient = ?", (client_uuid_bytes,))
+            return messages
+        except sqlite3.Error as e:
+            print(f"DB Error (get_waiting_messages): {e}")
+            return [] # Return empty list on failure
 
 # --- Global DB instance ---
 db = DatabaseManager(DB_FILENAME)
@@ -176,7 +209,6 @@ class ConnectionState:
 # --- Response Functions ---
 def send_response(conn, response_code, payload):
     try:
-        # Updated to use SERVER_VERSION (2)
         header = struct.pack('!BHI', SERVER_VERSION, response_code, len(payload))
         conn.sendall(header + payload)
     except Exception as e:
@@ -204,24 +236,28 @@ def send_registration_success(conn, client_uuid_bytes):
 
 def handle_registration(conn, payload):
     try:
+        # 1. Validate payload size
         if len(payload) != REGISTRATION_PAYLOAD_SIZE:
             send_error_response(conn, "Invalid registration payload size.")
             return
 
+        # 2. Parse username and public key
         username_bytes = payload[0:USERNAME_FIXED_SIZE]
         public_key = payload[USERNAME_FIXED_SIZE:]
         username = username_bytes.decode('utf-8').rstrip('\0')
 
+        # 3. Validate username
         if not username:
              send_error_response(conn, "Username cannot be empty.")
              return
 
         new_uuid_bytes = uuid.uuid4().bytes
         
-        # Try to register in DB
+        # 4. Try to register in DB
         if db.register_client(new_uuid_bytes, username, public_key):
              print(f"Registered new user '{username}' with UUID {new_uuid_bytes.hex()}")
              send_registration_success(conn, new_uuid_bytes)
+        # if already exists, register_client will return False
         else:
              send_error_response(conn, "Username already exists.")
 
@@ -231,14 +267,17 @@ def handle_registration(conn, payload):
 
 # Handles sending a list of all clients to the requester except themselves
 def handle_client_list(conn, client_id_bytes):
+    # 1. Authenticate requester
     if not db.client_exists(client_id_bytes):
         send_error_response(conn, "Authentication failed. You are not registered.")
         return
     
+    # 2. Update last seen
     db.update_last_seen(client_id_bytes)
     requester_name = db.get_client_name(client_id_bytes)
     print(f"Sending client list to '{requester_name}'...")
 
+    # 3. Build payload - list of (UUID + Username)
     all_clients = db.get_all_clients()
     payload_chunks = []
     for uuid_bytes, username in all_clients:
@@ -248,57 +287,69 @@ def handle_client_list(conn, client_id_bytes):
         name_bytes = username.encode('utf-8').ljust(USERNAME_FIXED_SIZE, b'\0')
         payload_chunks.append(name_bytes) # 255 bytes
 
+    # 4. Send users ist to client
     send_response(conn, RESPONSE_CODE_DISPLAYING_CLIENTS_LIST, b"".join(payload_chunks))
 
 # Handles sending a public key of the requested client to the requester
 def handle_public_key_request(conn, client_id_bytes, payload):
+    # 1. Authenticate requester
     if not db.client_exists(client_id_bytes):
         send_error_response(conn, "Authentication failed.")
         return
     
+    # 2. Update last seen
     db.update_last_seen(client_id_bytes)
+
+    # 3. Parse target UUID
     if len(payload) != CLIENT_UUID_SIZE:
         send_error_response(conn, "Invalid target UUID size.")
         return
         
     target_uuid_bytes = payload
-    result = db.get_public_key(target_uuid_bytes)
+    result = db.get_public_key(target_uuid_bytes) 
     
+    # 4. Send public key or error
     if result:
         target_pub_key, target_name = result
         requester_name = db.get_client_name(client_id_bytes)
         print(f"Sending public key of '{target_name}' to '{requester_name}'...")
-        # Response: TargetUUID (16) + PublicKey (160)
+        # send TargetUUID (16) + PublicKey (160) to client
         send_response(conn, RESPONSE_CODE_SEND_PUBLIC_KEY, target_uuid_bytes + target_pub_key)
     else:
         send_error_response(conn, "Client not found.")
 
 # Handles sending a text message to another client
 def handle_send_message(conn, client_id_bytes, payload):
+    # 1. Authenticate sender
     if not db.client_exists(client_id_bytes):
         send_error_response(conn, "Authentication failed.")
         return
     
+    # 2. Update last seen
     db.update_last_seen(client_id_bytes)
+
+    # 3. Parse message
     try:
         target_id_bytes = payload[:CLIENT_UUID_SIZE]
         msg_type = payload[CLIENT_UUID_SIZE]
         content_size = struct.unpack('!I', payload[CLIENT_UUID_SIZE+1 : CLIENT_UUID_SIZE+5])[0]
         content = payload[CLIENT_UUID_SIZE+5:]
 
+        # 3a. Validate message
         if len(content) != content_size:
              send_error_response(conn, "Message size mismatch.")
              return
         
+        # 3b. Validate target client exists
         if not db.client_exists(target_id_bytes):
              send_error_response(conn, "Target client does not exist.")
              return
 
-        # Save to DB
+        # 4. Save message on DB and get MsgID
         msg_id = db.save_message(target_id_bytes, client_id_bytes, msg_type, content)
         print(f"Message {msg_id} saved for {target_id_bytes.hex()} from {client_id_bytes.hex()}")
 
-        # Send confirmation: TargetUUID (16) + MsgID (4)
+        # 5. Send to client confirmation: TargetUUID (16) + MsgID (4)
         response_payload = target_id_bytes + struct.pack('!I', msg_id)
         send_response(conn, RESPONSE_CODE_SEND_TEXT_MESSAGE, response_payload)
 
@@ -308,17 +359,21 @@ def handle_send_message(conn, client_id_bytes, payload):
 
 # Handles pulling waiting messages for a client
 def handle_pull_messages(conn, client_id_bytes):
+    # 1. Authenticate requester
     if not db.client_exists(client_id_bytes):
         send_error_response(conn, "Authentication failed.")
         return
-
-    db.update_last_seen(client_id_bytes)
-    messages = db.get_waiting_messages(client_id_bytes)
     
+    # 2. Update last seen and get messages
+    db.update_last_seen(client_id_bytes)
+    messages = db.get_waiting_messages(client_id_bytes) # List of (ID, FromClient, Type, Content)
+    
+    # 2a. If no messages, send empty response
     if not messages:
         send_response(conn, RESPONSE_CODE_PULL_WAITING_MESSAGE, b"")
         return
-
+    
+    # 3. Build payload and send
     print(f"Sending {len(messages)} messages to {client_id_bytes.hex()}")
     payload_chunks = []
     for msg_id, from_uuid, msg_type, content in messages:
@@ -332,8 +387,9 @@ def handle_pull_messages(conn, client_id_bytes):
 
 # --- Main Handler Dispatcher ---
 def handle_request(conn, state):
-    payload = state.buffer[:state.expected_len]
+    payload = state.buffer[:state.expected_len] # Extract payload
     
+    # Dispatch based on request code
     if state.request_code == REQUEST_CODE_REGISTER:
         handle_registration(conn, payload)
     elif state.request_code == REQUEST_CODE_CLIENTS_LIST:
@@ -348,12 +404,14 @@ def handle_request(conn, state):
         print(f"Unknown request code: {state.request_code}")
         send_error_response(conn, f"Unknown request code: {state.request_code}")
 
+    # Remove processed data from buffer and reset state
     state.buffer = state.buffer[state.expected_len:]
     state.reset_for_new_request()
 
 # --- I/O Loop ---
 def read(conn, mask):
-    state = sel.get_key(conn).data["state"]
+    state = sel.get_key(conn).data["state"] # Get connection state
+    # 1. Read data
     try:
         data = conn.recv(8192)
     except ConnectionError:
@@ -366,9 +424,13 @@ def read(conn, mask):
         return
 
     state.buffer += data
+
+    # 2. Process all complete requests in buffer
     while True:
+        # 2a. Process HEADER
         if state.state == "HEADER":
             if len(state.buffer) >= REQUEST_HEADER_SIZE:
+                # Parse header
                 header_data = state.buffer[:REQUEST_HEADER_SIZE]
                 client_id = header_data[:CLIENT_UUID_SIZE]
                 version, code, payload_size = struct.unpack('!BHI', header_data[CLIENT_UUID_SIZE:])
@@ -380,26 +442,38 @@ def read(conn, mask):
                     conn.close()
                     return
 
+                # Set to expect payload
                 state.set_payload_state(client_id, code, payload_size)
                 state.buffer = state.buffer[REQUEST_HEADER_SIZE:]
             else:
                 break
+
+        # 2b. Process PAYLOAD
         if state.state == "PAYLOAD":
             if len(state.buffer) >= state.expected_len:
+                # We have a complete payload, process the request
                 handle_request(conn, state)
             else:
                 break
         if not state.buffer:
             break
 
+# --- Accept New Connections ---
 def accept(sock, mask):
     conn, addr = sock.accept()
     print('accepted connection from', addr)
+
+    # Non-blocking socket
     conn.setblocking(False)
+
+    # Register connection for reading with a new ConnectionState
     sel.register(conn, selectors.EVENT_READ, data={"callback": read, "state": ConnectionState()})
 
+# --- Main Server Loop ---
 def main():
-    port = 1357
+    port = 1357 # default port
+
+    # Try to read port from file
     try:
         with open(PORT_FILENAME, "r") as f:
             port_str = f.read().strip()
@@ -407,25 +481,31 @@ def main():
     except Exception as e:
         print(f"Using default port {port} ({e})")
 
+    # Create listening socket
     sock = socket.socket()
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(('localhost', port))
     sock.listen(100)
-    sock.setblocking(False)
-    sel.register(sock, selectors.EVENT_READ, data={"callback": accept})
+    sock.setblocking(False) # Non-blocking socket
+    sel.register(sock, selectors.EVENT_READ, data={"callback": accept}) # Accept new connections
     print(f"Server (v{SERVER_VERSION}) listening on localhost:{port}")
 
+    # Main event loop
     try:
         while True:
             events = sel.select()
+
+            # Handle events
             for key, mask in events:
                 key.data["callback"](key.fileobj, mask)
     except KeyboardInterrupt:
         print("Server shutting down.")
+
+    # Graceful shutdown
     finally:
         sel.close()
         sock.close()
 
 # the entry point of the script
 if __name__ == "__main__":
-    main() # Calls the function only if we ran the file directly
+    main() # Calls the function only if we run the file directly

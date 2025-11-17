@@ -1,3 +1,5 @@
+# command in terminal: cd C:\Users\User\Documents\Yehonatan\open-university\defensive-programing\MessageU1\src\server
+
 import selectors
 import socket
 import struct  # For packing/unpacking binary data
@@ -353,7 +355,7 @@ def handle_request(conn, state):
 def read(conn, mask):
     state = sel.get_key(conn).data["state"]
     try:
-        data = conn.recv(1024)
+        data = conn.recv(8192)
     except ConnectionError:
         sel.unregister(conn)
         conn.close()

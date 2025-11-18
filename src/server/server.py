@@ -8,7 +8,7 @@ import sqlite3 # For database operations
 import os # For file operations
 from datetime import datetime # For timestamping messages
 
-DEFAULT_PORT = 1357
+DEFAULT_PORT = 1357 # Default port if port file is missing or invalid
 PORT_FILENAME = "myport.info"
 DB_FILENAME = "defensive.db"
 
@@ -65,7 +65,7 @@ class DatabaseManager:
     # Internal method to get a new DB connection
     def _get_connection(self):
         # The connection itself can fail (e.g., permissions)
-        return sqlite3.connect(self.db_file, timeout=5) # Added timeout
+        return sqlite3.connect(self.db_file, timeout=5) # Timeout to avoid locking issues
 
     # Internal method to create the database tables if they don't exist
     def _initialize_db(self):
@@ -287,7 +287,7 @@ def handle_client_list(conn, client_id_bytes):
         name_bytes = username.encode('utf-8').ljust(USERNAME_FIXED_SIZE, b'\0')
         payload_chunks.append(name_bytes) # 255 bytes
 
-    # 4. Send users ist to client
+    # 4. Send users list to client
     send_response(conn, RESPONSE_CODE_DISPLAYING_CLIENTS_LIST, b"".join(payload_chunks))
 
 # Handles sending a public key of the requested client to the requester
@@ -318,7 +318,7 @@ def handle_public_key_request(conn, client_id_bytes, payload):
     else:
         send_error_response(conn, "Client not found.")
 
-# Handles sending a text message to another client
+# Handles sending text message to another client
 def handle_send_message(conn, client_id_bytes, payload):
     # 1. Authenticate sender
     if not db.client_exists(client_id_bytes):

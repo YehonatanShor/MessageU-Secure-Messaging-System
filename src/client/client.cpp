@@ -1,4 +1,4 @@
-// command in terminal: cd C:\Users\User\Documents\Yehonatan\open-university\defensive-programing\MessageU1\src\client
+// command in terminal: 
 // Compile command:    g++ client.cpp RSAWrapper.cpp Base64Wrapper.cpp AESWrapper.cpp -o client.exe -std=c++17 -lWs2_32 -lpthread -lcryptopp
 // Run command:        client.exe
 
@@ -135,7 +135,7 @@ std::string binary_to_hex_ascii(const std::string& bin_uuid)
     CryptoPP::StringSource ss(bin_uuid, true,
         new CryptoPP::HexEncoder(
             new CryptoPP::StringSink(hex),
-            true // uppercase
+            true
         )
     );
     return hex;
@@ -868,7 +868,7 @@ void handle_pull_messages(tcp::socket& s)
                         if (msg_type == MSG_TYPE_TEXT_MESSAGE) {
                             std::cout << decrypted << "\n";
                         } 
-                        // else - if file if file save to temp file
+                        // else - if file save to temp file
                         else {
                             auto temp_path = std::filesystem::temp_directory_path() / ("msg_" + std::to_string(msg_id) + ".tmp");
                             // Write binary data to temp file
@@ -983,7 +983,7 @@ int main()
                 handle_send_message_options(s, users_choice);
                 continue;
             }
-            else // Other menu options will go here
+            else 
             {
                 std::cout << "Invalid option. Please try again.\n"; // unrecognized input
             }

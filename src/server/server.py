@@ -347,7 +347,7 @@ def handle_send_message(conn, client_id_bytes, payload):
 
         # 4. Save message on DB and get MsgID
         msg_id = db.save_message(target_id_bytes, client_id_bytes, msg_type, content)
-        print(f"Message {msg_id} saved for {target_id_bytes.hex()} from {client_id_bytes.hex()}")
+        print(f"Message {msg_id} saved for {db.get_client_name(target_id_bytes)} from {db.get_client_name(client_id_bytes)}")
 
         # 5. Send to client confirmation: TargetUUID (16) + MsgID (4)
         response_payload = target_id_bytes + struct.pack('!I', msg_id)
@@ -367,14 +367,14 @@ def handle_pull_messages(conn, client_id_bytes):
     # 2. Update last seen and get messages
     db.update_last_seen(client_id_bytes)
     messages = db.get_waiting_messages(client_id_bytes) # List of (ID, FromClient, Type, Content)
-    
+
     # 2a. If no messages, send empty response
     if not messages:
         send_response(conn, RESPONSE_CODE_PULL_WAITING_MESSAGE, b"")
         return
     
     # 3. Build payload and send
-    print(f"Sending {len(messages)} messages to {client_id_bytes.hex()}")
+    print(f"Sending {len(messages)} messages to {db.get_client_name(client_id_bytes)}")
     payload_chunks = []
     for msg_id, from_uuid, msg_type, content in messages:
         payload_chunks.append(from_uuid)                       # 16 bytes

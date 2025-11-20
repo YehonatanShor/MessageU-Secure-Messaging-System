@@ -93,7 +93,7 @@ std::string read_file_content(const std::string& filepath)
     return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 }
 
-    // Implementing functions of MessageUClient class
+    // Implement functions of MessageUClient class
 
 MessageUClient::MessageUClient() : p_socket(p_io_context), p_resolver(p_io_context) {
     // Try to load info on startup

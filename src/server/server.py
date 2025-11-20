@@ -51,7 +51,7 @@ RESPONSE_CODE_SIZE = 2;
 RESPONSE_PAYLOAD_SIZE = 4;
 RESPONSE_HEADER_SIZE = 1 + 2 + 4; # Version(1) + Code(2) + PayloadSize(4)
 
-# --- Database Manager---
+# Database Manager
 class DatabaseManager:
     # Initializes the database connection and creates tables if they don't exist.
     def __init__(self, db_file):
@@ -62,9 +62,8 @@ class DatabaseManager:
             print(f"FATAL DB ERROR: Could not initialize database: {e}")
             raise # Re-raise exception to stop the server if DB can't be created
 
-    # Internal method to get a new DB connection
+    # Internal method to get new DB connection
     def _get_connection(self):
-        # The connection itself can fail (e.g., permissions)
         return sqlite3.connect(self.db_file, timeout=5) # Timeout to avoid locking issues
 
     # Internal method to create the database tables if they don't exist
@@ -93,7 +92,7 @@ class DatabaseManager:
             conn.commit()
         print(f"Database initialized at {self.db_file}")
 
-    # Updates the LastSeen timestamp for a client   
+    # Updates LastSeen timestamp for client   
     def update_last_seen(self, client_uuid_bytes):
         try:
             with self._get_connection() as conn:
@@ -102,7 +101,7 @@ class DatabaseManager:
         except sqlite3.Error as e:
             print(f"DB Error (update_last_seen): {e}")
 
-    # Registers a new client. Returns True on success, False if username exists
+    # Registers new client - Returns True on success, False if username exists
     def register_client(self, uuid_bytes, username, public_key):
         try:
             with self._get_connection() as conn:
@@ -115,7 +114,7 @@ class DatabaseManager:
             print(f"DB Error (register_client): {e}")
             return False
 
-    # Checks if a client exists by UUID
+    # Checks if client exists by UUID
     def client_exists(self, uuid_bytes):
         try:
             with self._get_connection() as conn:
@@ -125,7 +124,7 @@ class DatabaseManager:
             print(f"DB Error (client_exists): {e}")
             return False # Assume not exists if DB fails
 
-    # Retrieves the username for a given client UUID
+    # Return username by users UUID
     def get_client_name(self, uuid_bytes):
         try:
             with self._get_connection() as conn:
@@ -136,7 +135,7 @@ class DatabaseManager:
             print(f"DB Error (get_client_name): {e}")
             return None
 
-    # Retrieves the public key and username for a given client UUID
+    # Return public key and username by users UUID
     def get_public_key(self, uuid_bytes):
         try:
             with self._get_connection() as conn:
@@ -146,7 +145,7 @@ class DatabaseManager:
             print(f"DB Error (get_public_key): {e}")
             return None
 
-    # Returns a list of (uuid_bytes, username) for all clients
+    # Returns list of pairs of information details (uuid_bytes, username) for all users
     def get_all_clients(self):
         try:
             with self._get_connection() as conn:
@@ -172,7 +171,7 @@ class DatabaseManager:
         messages = []
         try:
             with self._get_connection() as conn:
-                # 'with conn:' creates an atomic transaction
+                # 'with conn:' creates an atomic transaction for both operations (select and delete)
                 with conn:
                     # 1. Get messages
                     cursor = conn.execute("SELECT ID, FromClient, Type, Content FROM messages WHERE ToClient = ?", (client_uuid_bytes,))
@@ -184,11 +183,11 @@ class DatabaseManager:
             print(f"DB Error (get_waiting_messages): {e}")
             return [] # Return empty list on failure
 
-# --- Global DB instance ---
+# Global DB instance
 db = DatabaseManager(DB_FILENAME)
 sel = selectors.DefaultSelector()
 
-# --- Connection State ---
+# Connection State Manager for each client connection
 class ConnectionState:
     def __init__(self):
         self.reset_for_new_request()
@@ -206,7 +205,7 @@ class ConnectionState:
         self.request_code = code
         self.expected_len = payload_size
 
-# --- Response Functions ---
+# Send response to client 
 def send_response(conn, response_code, payload):
     try:
         header = struct.pack('!BHI', SERVER_VERSION, response_code, len(payload))
@@ -214,7 +213,7 @@ def send_response(conn, response_code, payload):
     except Exception as e:
         print(f"Error sending response code {response_code}: {e}")
 
-# --- Error and Success Responses ---
+# Send error response to client
 def send_error_response(conn, error_message):
     print(f"Sending error to {conn.getpeername()}: {error_message}")
     payload = error_message.encode('utf-8')
@@ -224,6 +223,7 @@ def send_error_response(conn, error_message):
     except Exception as e:
         print(f"Error sending error response: {e}")
 
+# Send registration success response with assigned UUID to client
 def send_registration_success(conn, client_uuid_bytes):
     print(f"Sending registration success to {conn.getpeername()}, UUID: {client_uuid_bytes.hex()}")
     header = struct.pack('!BHI', SERVER_VERSION, RESPONSE_CODE_REGISTER_SUCCESS, len(client_uuid_bytes))
@@ -232,32 +232,31 @@ def send_registration_success(conn, client_uuid_bytes):
     except Exception as e:
         print(f"Error sending success response: {e}")
 
-# --- Request Handlers ---
-
+# Handles user registration
 def handle_registration(conn, payload):
     try:
-        # 1. Validate payload size
+        # Validate payload size
         if len(payload) != REGISTRATION_PAYLOAD_SIZE:
             send_error_response(conn, "Invalid registration payload size.")
             return
 
-        # 2. Parse username and public key
+        # Extract username and public key
         username_bytes = payload[0:USERNAME_FIXED_SIZE]
         public_key = payload[USERNAME_FIXED_SIZE:]
         username = username_bytes.decode('utf-8').rstrip('\0')
 
-        # 3. Validate username
+        # Validate username
         if not username:
              send_error_response(conn, "Username cannot be empty.")
              return
 
         new_uuid_bytes = uuid.uuid4().bytes
         
-        # 4. Try to register in DB
+        # Try register in DB
         if db.register_client(new_uuid_bytes, username, public_key):
              print(f"Registered new user '{username}' with UUID {new_uuid_bytes.hex()}")
              send_registration_success(conn, new_uuid_bytes)
-        # if already exists, register_client will return False
+        # If already exists, register_client will return False
         else:
              send_error_response(conn, "Username already exists.")
 
@@ -265,50 +264,52 @@ def handle_registration(conn, payload):
         print(f"Error processing registration: {e}")
         send_error_response(conn, "Registration failed.")
 
-# Handles sending a list of all clients to the requester except themselves
+# Handles sending list of all users to the requester except themselves
 def handle_client_list(conn, client_id_bytes):
-    # 1. Authenticate requester
+    # Authenticate requester
     if not db.client_exists(client_id_bytes):
         send_error_response(conn, "Authentication failed. You are not registered.")
         return
     
-    # 2. Update last seen
+    # Update last seen
     db.update_last_seen(client_id_bytes)
     requester_name = db.get_client_name(client_id_bytes)
     print(f"Sending client list to '{requester_name}'...")
 
-    # 3. Build payload - list of (UUID + Username)
+    # Build payload - list of (UUID + Username)
     all_clients = db.get_all_clients()
     payload_chunks = []
     for uuid_bytes, username in all_clients:
         if uuid_bytes == client_id_bytes: continue # Don't send own name
         
+        # Append UUID and padded username to payload
         payload_chunks.append(uuid_bytes) # 16 bytes
         name_bytes = username.encode('utf-8').ljust(USERNAME_FIXED_SIZE, b'\0')
         payload_chunks.append(name_bytes) # 255 bytes
 
-    # 4. Send users list to client
+    # Send users list to requester
     send_response(conn, RESPONSE_CODE_DISPLAYING_CLIENTS_LIST, b"".join(payload_chunks))
 
-# Handles sending a public key of the requested client to the requester
+# Handles sending public key of requested user to requester
 def handle_public_key_request(conn, client_id_bytes, payload):
-    # 1. Authenticate requester
+    # Authenticate requester
     if not db.client_exists(client_id_bytes):
         send_error_response(conn, "Authentication failed.")
         return
     
-    # 2. Update last seen
+    # Update last seen
     db.update_last_seen(client_id_bytes)
 
-    # 3. Parse target UUID
+    # Validate payload size
     if len(payload) != CLIENT_UUID_SIZE:
         send_error_response(conn, "Invalid target UUID size.")
         return
-        
+
+    # Extract target UUID    
     target_uuid_bytes = payload
     result = db.get_public_key(target_uuid_bytes) 
     
-    # 4. Send public key or error
+    # Send public key to requester
     if result:
         target_pub_key, target_name = result
         requester_name = db.get_client_name(client_id_bytes)
@@ -318,38 +319,38 @@ def handle_public_key_request(conn, client_id_bytes, payload):
     else:
         send_error_response(conn, "Client not found.")
 
-# Handles sending text message to another client
+# Handles sending text message to another user
 def handle_send_message(conn, client_id_bytes, payload):
-    # 1. Authenticate sender
+    # Authenticate sender
     if not db.client_exists(client_id_bytes):
         send_error_response(conn, "Authentication failed.")
         return
     
-    # 2. Update last seen
+    # Update last seen
     db.update_last_seen(client_id_bytes)
 
-    # 3. Parse message
+    # # Extract message
     try:
         target_id_bytes = payload[:CLIENT_UUID_SIZE]
         msg_type = payload[CLIENT_UUID_SIZE]
         content_size = struct.unpack('!I', payload[CLIENT_UUID_SIZE+1 : CLIENT_UUID_SIZE+5])[0]
         content = payload[CLIENT_UUID_SIZE+5:]
 
-        # 3a. Validate message
+        # Validate message size
         if len(content) != content_size:
              send_error_response(conn, "Message size mismatch.")
              return
         
-        # 3b. Validate target client exists
+        # Validate target client existence
         if not db.client_exists(target_id_bytes):
              send_error_response(conn, "Target client does not exist.")
              return
 
-        # 4. Save message on DB and get MsgID
+        # Save message on DB and get message ID
         msg_id = db.save_message(target_id_bytes, client_id_bytes, msg_type, content)
         print(f"Message {msg_id} saved for {db.get_client_name(target_id_bytes)} from {db.get_client_name(client_id_bytes)}")
 
-        # 5. Send to client confirmation: TargetUUID (16) + MsgID (4)
+        # Send client confirmation: TargetUUID (16) + MsgID (4)
         response_payload = target_id_bytes + struct.pack('!I', msg_id)
         send_response(conn, RESPONSE_CODE_SEND_TEXT_MESSAGE, response_payload)
 
@@ -357,7 +358,7 @@ def handle_send_message(conn, client_id_bytes, payload):
         print(f"Error handling send_message: {e}")
         send_error_response(conn, "Invalid message format.")
 
-# Handles pulling waiting messages for a client
+# Handles pulling waiting messages for a user
 def handle_pull_messages(conn, client_id_bytes):
     # 1. Authenticate requester
     if not db.client_exists(client_id_bytes):
@@ -385,9 +386,11 @@ def handle_pull_messages(conn, client_id_bytes):
 
     send_response(conn, RESPONSE_CODE_PULL_WAITING_MESSAGE, b"".join(payload_chunks))
 
-# --- Main Handler Dispatcher ---
+# Main handler - matches users request to appropriate handling function
 def handle_request(conn, state):
-    payload = state.buffer[:state.expected_len] # Extract payload
+
+     # Extract payload
+    payload = state.buffer[:state.expected_len]
     
     # Dispatch based on request code
     if state.request_code == REQUEST_CODE_REGISTER:
@@ -408,10 +411,12 @@ def handle_request(conn, state):
     state.buffer = state.buffer[state.expected_len:]
     state.reset_for_new_request()
 
-# --- I/O Loop ---
+# Read Data from Client Connection
 def read(conn, mask):
-    state = sel.get_key(conn).data["state"] # Get connection state
-    # 1. Read data
+    # Get connection state
+    state = sel.get_key(conn).data["state"] 
+
+    # Read data
     try:
         data = conn.recv(8192)
     except ConnectionError:
@@ -423,14 +428,15 @@ def read(conn, mask):
         conn.close()
         return
 
-    state.buffer += data
+    # Append new data to buffer
+    state.buffer += data 
 
-    # 2. Process all complete requests in buffer
+    # Process all complete requests in buffer
     while True:
-        # 2a. Process HEADER
+        # Process HEADER
         if state.state == "HEADER":
             if len(state.buffer) >= REQUEST_HEADER_SIZE:
-                # Parse header
+                # Extract header
                 header_data = state.buffer[:REQUEST_HEADER_SIZE]
                 client_id = header_data[:CLIENT_UUID_SIZE]
                 version, code, payload_size = struct.unpack('!BHI', header_data[CLIENT_UUID_SIZE:])
@@ -448,7 +454,7 @@ def read(conn, mask):
             else:
                 break
 
-        # 2b. Process PAYLOAD
+        # Process PAYLOAD
         if state.state == "PAYLOAD":
             if len(state.buffer) >= state.expected_len:
                 # We have a complete payload, process the request
@@ -458,7 +464,7 @@ def read(conn, mask):
         if not state.buffer:
             break
 
-# --- Accept New Connections ---
+# Accept New Connections
 def accept(sock, mask):
     conn, addr = sock.accept()
     print('accepted connection from', addr)
@@ -469,7 +475,7 @@ def accept(sock, mask):
     # Register connection for reading with a new ConnectionState
     sel.register(conn, selectors.EVENT_READ, data={"callback": read, "state": ConnectionState()})
 
-# --- Main Server Loop ---
+# Main Server Loop
 def main():
     port = 1357 # default port
 
@@ -506,6 +512,6 @@ def main():
         sel.close()
         sock.close()
 
-# the entry point of the script
+# Entry point of script
 if __name__ == "__main__":
     main() # Calls the function only if we run the file directly

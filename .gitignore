@@ -1,43 +1,60 @@
-# קבצים מקומפלים (תוצרי ריצה)
-*.exe
+# BUILD ARTIFACTS
+# Compiled objects, libraries, and executables
 *.o
 *.obj
 *.out
 *.class
+*.exe
 *.dll
-defensive.db
+*.so
+*.dylib
+*.a
 
-# קבצי נתונים ומסמכים
-# (בדרך כלל לא שומרים אותם ב-Git אלא אם הם חלק מהגדרות הפרויקט)
+# Build and IDE generated folders
+cmake-build-debug/
+make-build-debug/
+bin/
+build/
+dist/
+
+# PYTHON ARTIFACTS
+# Compiled files and environment folders
+__pycache__/
+*.pyc
+
+# IDE AND WORKSPACE CONFIG
+# User-specific settings and logs (should not be shared)
+# Visual Studio / VS Code
+*.suo
+*.user
+*.log
+.vscode/
+
+# IntelliJ / PyCharm
+.idea/
+
+# macOS / Linux system files
+.DS_Store
+
+# DATA, SECRETS, AND TEMPORARY FILES
+# Local databases, large files, and proprietary data
+*.db
+*.sqlite
+
+# Proprietary/Temporary Data
+*.info
+*.dat
+*.tmp
 *.pdf
 *.xlsx
 *.csv
 *.info
-*.dat
 
-# קבצי הגדרות של IDE / סביבת עבודה
-*.xml
-*.ini
-*.suo
-*.user
-*.log
-
-# תיקיות של Python
-__pycache__/
-*.pyc
-
-# התעלם מתיקיות של סביבת הפיתוח
-.vscode/
-
-# התעלם מקבצי Office
+# Office documents (often binary and non-code assets)
 *.docx
 *.pptx
 
-# התעלם מתיקיות build (מתוך האזהרות שראיתי)
-cmake-build-debug/
-make-build-debug/
-
-# קבצי מדיה (תמונות, וידאו וכו')
+# MEDIA FILES (Often too large for Git)
 *.mp4
 *.png
 *.jpg

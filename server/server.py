@@ -1,5 +1,3 @@
-# command in terminal: cd C:\Users\User\Documents\Yehonatan\open-university\defensive-programing\MessageU1\src\server
-
 import selectors
 import socket
 import struct  # For packing/unpacking binary data

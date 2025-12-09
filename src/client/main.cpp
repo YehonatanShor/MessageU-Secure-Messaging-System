@@ -1,7 +1,7 @@
 // command in terminal: cd C:\Users\User\Documents\Yehonatan\open-university\defensive-programing\MessageU1\src\client 
 // Compile command:    g++ main.cpp MessageUClient.cpp RSAWrapper.cpp Base64Wrapper.cpp AESWrapper.cpp -o main.exe -std=c++17 -lWs2_32 -lpthread -lcryptopp
 // Run command:        main.exe
-// test
+// test push
 
 #include "MessageUClient.h"
 #include <iostream>

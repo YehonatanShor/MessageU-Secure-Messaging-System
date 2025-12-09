@@ -2,7 +2,6 @@
 #include <iostream>
 #include <string>
 #include <algorithm>
-// teat
 
 // Constants for menu (from your code)
 const std::string REGISTER_STR = "110";

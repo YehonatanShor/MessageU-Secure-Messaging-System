@@ -16,6 +16,7 @@ const std::string SEND_TEXT_MESSAGE_STR = "150";
 const std::string SEND_SYMMETRIC_KEY_REQUEST_STR = "151";
 const std::string SEND_SYMMETRIC_KEY_STR = "152";
 const std::string SEND_FILE_STR = "153";
+const std::string DELETE_USER_STR = "154";
 const std::string EXIT_CLIENT_STR = "0";
 
 // Trim whitespace from users input (two-sided of string)
@@ -42,6 +43,7 @@ int main()
 
 			// Handle user choice
             if (users_choice == EXIT_CLIENT_STR) break;
+            else if (users_choice == DELETE_USER_STR) client.handle_delete_user();
             else if (users_choice == REGISTER_STR) client.handle_registration();
             else if (users_choice == CLIENTS_LIST_STR) client.handle_client_list();
             else if (users_choice == REQUEST_PUBLIC_KEY_STR) client.handle_request_public_key();

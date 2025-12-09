@@ -33,6 +33,7 @@ const uint16_t REQUEST_CODE_CLIENTS_LIST = 601;
 const uint16_t REQUEST_CODE_PUBLIC_KEY = 602;
 const uint16_t REQUEST_CODE_SEND_MESSAGE = 603;
 const uint16_t REQUEST_CODE_WAITING_MESSAGES = 604;
+const uint16_t REQUEST_CODE_DELETE_USER = 605;
 
 // Response Codes
 const uint16_t RESPONSE_CODE_REGISTER_SUCCESS = 2100;
@@ -40,6 +41,7 @@ const uint16_t RESPONSE_CODE_DISPLAYING_CLIENTS_LIST = 2101;
 const uint16_t RESPONSE_CODE_SEND_PUBLIC_KEY = 2102;
 const uint16_t RESPONSE_CODE_SEND_TEXT_MESSAGE = 2103;
 const uint16_t RESPONSE_CODE_PULL_WAITING_MESSAGE = 2104;
+const uint16_t RESPONSE_CODE_DELETE_USER_SUCCESS = 2105;
 const uint16_t RESPONSE_CODE_GENERAL_ERROR = 9000;
 
 // Server Header Sizes
@@ -134,6 +136,7 @@ void MessageUClient::show_menu()
               << "151) Send a request for symmetric key\n"
               << "152) Send your symmetric key\n"
               << "153) Send a file\n"
+              << "154) Delete user\n"
               << "0) Exit client\n"
               << "?\n";
 }
@@ -755,3 +758,89 @@ void MessageUClient::handle_send_message_options(const std::string& menu_choice)
         std::cerr << "Server responded with an error: " << error_msg << std::endl;
     }
 }
+
+// Handles deleting user from server and client (input 154 / request code 605)
+void MessageUClient::handle_delete_user()
+{
+    // 1. Check if registered
+    if (!g_is_registered) {
+        std::cerr << "Error: Not registered. Nothing to delete.\n";
+        return;
+    }
+
+    std::cout << "WARNING: This will delete your account and all data. Are you sure? (y/n): ";
+    std::string confirm;
+    std::getline(std::cin, confirm);
+    if (confirm != "y" && confirm != "Y") {
+        std::cout << "Operation cancelled.\n";
+        return;
+    }
+
+    // 2. Build Request Header (Only header, no payload needed)
+    char request_header[REQUEST_HEADER_SIZE];
+    uint16_t request_code = htons(REQUEST_CODE_DELETE_USER);
+    uint32_t request_payload_size = htonl(0); // No payload
+
+    // Fill header
+    std::memcpy(request_header, g_my_info.uuid_bin.data(), CLIENT_UUID_SIZE);
+    request_header[CLIENT_UUID_SIZE] = CLIENT_VERSION;
+    std::memcpy(request_header + CLIENT_UUID_SIZE + CLIENT_VERSION_SIZE, &request_code, sizeof(request_code));
+    std::memcpy(request_header + CLIENT_UUID_SIZE + CLIENT_VERSION_SIZE + REQUEST_CODE_SIZE, &request_payload_size, sizeof(request_payload_size));
+
+    // 3. Send request
+    std::cout << "Sending delete request to server...\n";
+    try {
+        boost::asio::write(p_socket, boost::asio::buffer(request_header, REQUEST_HEADER_SIZE));
+    } catch (const std::exception& e) {
+        std::cerr << "Network error: " << e.what() << "\n";
+        return;
+    }
+
+    // 4. Read Response Header
+    char response_header[RESPONSE_HEADER_SIZE];
+    try {
+        boost::asio::read(p_socket, boost::asio::buffer(response_header, RESPONSE_HEADER_SIZE));
+    } catch (...) {
+        std::cerr << "Error reading server response.\n";
+        return;
+    }
+
+    // Parse header
+    uint16_t r_code;
+    uint32_t r_size;
+    std::memcpy(&r_code, response_header + SERVER_VERSION_SIZE, RESPONSE_CODE_SIZE);
+    std::memcpy(&r_size, response_header + SERVER_VERSION_SIZE + RESPONSE_CODE_SIZE, RESPONSE_PAYLOAD_SIZE);
+    r_code = ntohs(r_code);
+    r_size = ntohl(r_size);
+
+    // Read payload if exists (usually error message)
+    std::vector<char> r_payload(r_size);
+    if (r_size > 0) {
+        boost::asio::read(p_socket, boost::asio::buffer(r_payload));
+    }
+
+    // 5. Process result
+    if (r_code == RESPONSE_CODE_DELETE_USER_SUCCESS) {
+        std::cout << "Server deleted user successfully.\n";
+        
+        // Delete local file
+        if (std::filesystem::exists(MY_INFO_FILE)) {
+            std::filesystem::remove(MY_INFO_FILE);
+            std::cout << "Deleted local file: " << MY_INFO_FILE << "\n";
+        }
+
+        // Reset RAM state
+        g_is_registered = false;
+        g_my_info.name = "";
+        g_my_info.uuid_hex = "";
+        g_my_info.uuid_bin = "";
+        g_my_info.keys.reset(); // Free RSA keys
+        
+        std::cout << "User deleted successfully from client memory.\n";
+    } 
+    else {
+        std::string error_msg(r_payload.begin(), r_payload.end());
+        std::cerr << "Server failed to delete user: " << error_msg << "\n";
+    }
+}
+

@@ -3,18 +3,23 @@
 *.o
 *.obj
 *.out
+*.class
+*.dll
 
 # קבצי נתונים ומסמכים
 # (בדרך כלל לא שומרים אותם ב-Git אלא אם הם חלק מהגדרות הפרויקט)
 *.pdf
 *.xlsx
 *.csv
+*.info
+*.dat
 
 # קבצי הגדרות של IDE / סביבת עבודה
 *.xml
 *.ini
 *.suo
 *.user
+*.log
 
 # תיקיות של Python
 __pycache__/

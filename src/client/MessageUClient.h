@@ -37,6 +37,7 @@ public:
     void handle_request_public_key();       // 130
     void handle_pull_messages();            // 140
     void handle_send_message_options(const std::string& menu_choice); // Handles options 150, 151, 152, 153
+    void handle_delete_user();             // 154
 
 private:
     // Network members to set up Boost.Asio connection

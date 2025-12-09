@@ -19,6 +19,7 @@ REQUEST_CODE_CLIENTS_LIST = 601;
 REQUEST_CODE_PUBLIC_KEY = 602;
 REQUEST_CODE_SEND_TEXT_MESSAGE = 603;
 REQUEST_CODE_WAITING_MESSAGES = 604;
+REQUEST_CODE_DELETE_USER = 605;
 
 # Message Types (for payload of code 603)
 MSG_TYPE_SYM_KEY_REQUEST = 1
@@ -43,6 +44,7 @@ RESPONSE_CODE_DISPLAYING_CLIENTS_LIST = 2101;
 RESPONSE_CODE_SEND_PUBLIC_KEY = 2102;
 RESPONSE_CODE_SEND_TEXT_MESSAGE = 2103;
 RESPONSE_CODE_PULL_WAITING_MESSAGE = 2104;
+RESPONSE_CODE_DELETE_USER_SUCCESS = 2105;
 RESPONSE_CODE_GENERAL_ERROR = 9000;
 
 # size in bytes
@@ -173,15 +175,34 @@ class DatabaseManager:
             with self._get_connection() as conn:
                 # 'with conn:' creates an atomic transaction for both operations (select and delete)
                 with conn:
-                    # 1. Get messages
+                    # Get messages
                     cursor = conn.execute("SELECT ID, FromClient, Type, Content FROM messages WHERE ToClient = ?", (client_uuid_bytes,))
                     messages = cursor.fetchall()
-                    # 2. Delete pulled messages
+                    # Delete pulled messages
                     conn.execute("DELETE FROM messages WHERE ToClient = ?", (client_uuid_bytes,))
             return messages
         except sqlite3.Error as e:
             print(f"DB Error (get_waiting_messages): {e}")
             return [] # Return empty list on failure
+        
+    # Deletes a client and all their associated messages from the DB
+    def delete_client(self, client_uuid_bytes):
+        try:
+            with self._get_connection() as conn:
+                with conn: # Atomic transaction
+                    # 1. Delete messages where user is sender OR receiver
+                    conn.execute("DELETE FROM messages WHERE ToClient = ? OR FromClient = ?", 
+                                 (client_uuid_bytes, client_uuid_bytes))
+                    # 2. Delete the client record
+                    cursor = conn.execute("DELETE FROM clients WHERE ID = ?", (client_uuid_bytes,))
+                    
+                    if cursor.rowcount > 0:
+                        return True
+                    else:
+                        return False # Client not found
+        except sqlite3.Error as e:
+            print(f"DB Error (delete_client): {e}")
+            return False # Indicate failure
 
 # Global DB instance
 db = DatabaseManager(DB_FILENAME)
@@ -386,6 +407,23 @@ def handle_pull_messages(conn, client_id_bytes):
 
     send_response(conn, RESPONSE_CODE_PULL_WAITING_MESSAGE, b"".join(payload_chunks))
 
+# Handles request to delete user
+def handle_delete_user(conn, client_id_bytes):
+    # 1. Authenticate
+    if not db.client_exists(client_id_bytes):
+        send_error_response(conn, "Authentication failed. User not found.")
+        return
+
+    client_name = db.get_client_name(client_id_bytes)
+    print(f"Request to delete user: {client_name}")
+
+    # 2. Perform deletion
+    if db.delete_client(client_id_bytes):
+        print(f"User {client_name} deleted successfully.")
+        send_response(conn, RESPONSE_CODE_DELETE_USER_SUCCESS, b"")
+    else:
+        send_error_response(conn, "Failed to delete user from database.")
+
 # Main handler - matches users request to appropriate handling function
 def handle_request(conn, state):
 
@@ -403,6 +441,8 @@ def handle_request(conn, state):
         handle_send_message(conn, state.client_id, payload)
     elif state.request_code == REQUEST_CODE_WAITING_MESSAGES:
         handle_pull_messages(conn, state.client_id)
+    elif state.request_code == REQUEST_CODE_DELETE_USER:
+        handle_delete_user(conn, state.client_id)
     else:
         print(f"Unknown request code: {state.request_code}")
         send_error_response(conn, f"Unknown request code: {state.request_code}")

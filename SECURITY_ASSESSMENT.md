@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This document presents a security assessment of the MessageU protocol. Several critical vulnerabilities were identified regarding authentication, encryption implementation, and data storage. The
+This document presents a security assessment of the MessageU protocol. Several critical vulnerabilities were identified regarding authentication, encryption implementation, and data storage.
 
 ## Vulnerability 1 - Lack of identity verification:
 

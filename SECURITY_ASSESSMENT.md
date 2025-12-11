@@ -22,18 +22,18 @@ This document presents a security assessment of the MessageU protocol. Several c
 
 ## Vulnerability 2: Weak symmetric encryption
 
-**Description:** The use of a fixed, zeroed initialization vector (IV) for AES-CBC encryption means that encrypting the same text will always yield the same result. Therefore, it is easy to detect patterns in the communication and compromise privacy.
+[cite_start]**Description:** The initial use of a fixed, zeroed initialization vector (IV) for AES-CBC encryption meant that encrypting the same text would always yield the same result. [cite: 1] [cite_start]This could allow an attacker to detect patterns in the communication and compromise privacy. [cite: 1]
 
-**Exploitation:** The attacker listens to the network communication (sniffing). He sees that a certain encrypted sequence of bytes is repeated over and over again. The attacker builds a "dictionary" of common encrypted messages and thus can know the content of the conversation without deciphering the key.
+**Exploitation:** The attacker listens to the network communication (sniffing). He sees that a certain encrypted sequence of bytes is repeated over and over again. [cite_start]The attacker builds a "dictionary" of common encrypted messages and thus can know the content of the conversation without deciphering the key. [cite: 1]
 
-**Remediation:** For each new message, a random IV must be generated. The IV should be prepended to the ciphertext. The receiving party will read the IV and use it for decryption.
+**Remediation:** For each new message, a random IV must be generated. The IV should be prepended to the ciphertext. [cite_start]The receiving party will read the IV and use it for decryption. [cite: 1]
 
-**Risk Score:**
+**--- Remediation Status: FIXED (v1.1) ---**
 
-- Damage Potential: 4
-- Reproducibility: 10
-- Exploitability: 5
-- Overall: 6.3
+**Fix Implementation:** The AESWrapper::encrypt function was modified to use CryptoPP::AutoSeededRandomPool to generate a cryptographically strong, random IV (16 bytes) for every new message. The IV is prepended to the ciphertext, adhering to the recommended remediation strategy. This prevents pattern detection and dictionary attacks.
+
+**Risk Score (Original):** Overall: 6.3
+**Risk Score (Current):** 0 (Mitigated)
 
 ## Vulnerability 3: DoS - Resource Exhaustion
 

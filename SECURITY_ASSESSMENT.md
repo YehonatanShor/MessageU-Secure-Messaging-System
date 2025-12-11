@@ -22,11 +22,11 @@ This document presents a security assessment of the MessageU protocol. Several c
 
 ## Vulnerability 2: Weak symmetric encryption
 
-[cite_start]**Description:** The initial use of a fixed, zeroed initialization vector (IV) for AES-CBC encryption meant that encrypting the same text would always yield the same result. [cite: 1] [cite_start]This could allow an attacker to detect patterns in the communication and compromise privacy. [cite: 1]
+**Description:** The initial use of a fixed, zeroed initialization vector (IV) for AES-CBC encryption meant that encrypting the same text would always yield the same result. This could allow an attacker to detect patterns in the communication and compromise privacy.
 
-**Exploitation:** The attacker listens to the network communication (sniffing). He sees that a certain encrypted sequence of bytes is repeated over and over again. [cite_start]The attacker builds a "dictionary" of common encrypted messages and thus can know the content of the conversation without deciphering the key. [cite: 1]
+**Exploitation:** The attacker listens to the network communication (sniffing). He sees that a certain encrypted sequence of bytes is repeated over and over again. The attacker builds a "dictionary" of common encrypted messages and thus can know the content of the conversation without deciphering the key.
 
-**Remediation:** For each new message, a random IV must be generated. The IV should be prepended to the ciphertext. [cite_start]The receiving party will read the IV and use it for decryption. [cite: 1]
+**Remediation:** For each new message, a random IV must be generated. The IV should be prepended to the ciphertext. The receiving party will read the IV and use it for decryption.
 
 **--- Remediation Status: FIXED (v1.1) ---**
 

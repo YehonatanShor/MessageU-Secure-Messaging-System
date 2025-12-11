@@ -6,13 +6,13 @@ Description: A secure, encrypted client-server messaging application implementin
 
 ## Key Features:
 
-- **Hybrid E2EE Encryption:** Implements RSA (1024-bit) for key exchange and AES (CBC mode) for message payload encryption.
+- **Hybrid E2EE Encryption:** Implements RSA (1024-bit) for key exchange and AES (CBC mode).
   - **Security Enhancement:** Includes per-message generation of a **cryptographically secure, random Initialization Vector (IV)** to prevent pattern detection attacks.
 - **Custom Binary Protocol:** Designed and implemented a proprietary binary protocol over TCP/IP (Little-Endian/Big-Endian handling).
 - **Cross-Language Architecture:** Interoperability between a C++17 client (using Boost.Asio) and a Python 3 server.
 - **Persistent Storage:** Server-side data management using SQLite database.
 - **Robust Functionality:** Supports user registration, file transfer, message queueing, and secure user deletion.
-- **Defensive Coding:** Handles edge cases, **buffer overflows protections**, and rigorous input validation.
+- **Defensive Coding:** Handles edge cases, buffer overflows protections, and rigorous input validation.
 
 ## Tech Stack:
 

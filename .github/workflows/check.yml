@@ -30,7 +30,6 @@ jobs:
 
       - name: Verify Compilation
         run: |
-          # Change directory to where the .cpp files are located
           cd client/src
-          # Compile commands. Added -I../include to find header files if they are separated.
-          g++ main.cpp MessageUClient.cpp RSAWrapper.cpp Base64Wrapper.cpp AESWrapper.cpp -o /dev/null -std=c++17 -lWs2_32 -lpthread -lcryptopp -I../include
+          # Changed output from /dev/null to test.exe to fix "file truncated" linker error on Windows
+          g++ main.cpp MessageUClient.cpp RSAWrapper.cpp Base64Wrapper.cpp AESWrapper.cpp -o test.exe -std=c++17 -lWs2_32 -lpthread -lcryptopp -I../include

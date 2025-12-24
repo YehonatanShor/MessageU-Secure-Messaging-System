@@ -9,6 +9,9 @@ jobs:
   build-windows:
     runs-on: windows-latest
 
+    permissions:
+      contents: write
+
     defaults:
       run:
         shell: msys2 {0}
@@ -28,14 +31,11 @@ jobs:
 
       - name: Compile Client
         run: |
-          # Change directory to source folder
           cd client/src
-          # Compile with static linking. Added -I../include for headers.
           g++ main.cpp MessageUClient.cpp RSAWrapper.cpp Base64Wrapper.cpp AESWrapper.cpp -o MessageUClient.exe -std=c++17 -lWs2_32 -lpthread -lcryptopp -static -I../include
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          # Note: Updated path to match the build location (inside src)
           files: client/src/MessageUClient.exe

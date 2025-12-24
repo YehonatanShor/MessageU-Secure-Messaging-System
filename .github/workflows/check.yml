@@ -30,5 +30,7 @@ jobs:
 
       - name: Verify Compilation
         run: |
-          cd client
-          g++ main.cpp MessageUClient.cpp RSAWrapper.cpp Base64Wrapper.cpp AESWrapper.cpp -o /dev/null -std=c++17 -lWs2_32 -lpthread -lcryptopp
+          # Change directory to where the .cpp files are located
+          cd client/src
+          # Compile commands. Added -I../include to find header files if they are separated.
+          g++ main.cpp MessageUClient.cpp RSAWrapper.cpp Base64Wrapper.cpp AESWrapper.cpp -o /dev/null -std=c++17 -lWs2_32 -lpthread -lcryptopp -I../include

@@ -23,7 +23,6 @@ jobs:
         with:
           msystem: MINGW64
           update: true
-          # Updated package names to ensure compatibility in MINGW64 environment
           install: >-
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-boost
@@ -31,5 +30,5 @@ jobs:
 
       - name: Verify Compilation
         run: |
-          cd Client
+          cd client
           g++ main.cpp MessageUClient.cpp RSAWrapper.cpp Base64Wrapper.cpp AESWrapper.cpp -o /dev/null -std=c++17 -lWs2_32 -lpthread -lcryptopp

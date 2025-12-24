@@ -1,5 +1,7 @@
 # defensive-programing
 
+![Compilation Check](https://github.com/YehonatanShor/MessageU-Secure-Messaging-System/actions/workflows/check.yml/badge.svg)
+
 ## Title: MessageU - Secure Messaging System
 
 Description: A secure, encrypted client-server messaging application implementing a custom application-layer protocol. The system features a C++ multi-threaded client and a Python server, designed with a focus on Defensive Programming principles and cryptographic security.

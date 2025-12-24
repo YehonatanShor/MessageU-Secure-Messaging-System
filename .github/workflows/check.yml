@@ -2,42 +2,34 @@ name: Code Compilation Check
 
 on:
   push:
-    # Monitor pushes to the main branch
     branches: ["main"]
   pull_request:
-    # Monitor pull requests targeting the main branch
     branches: ["main"]
 
 jobs:
   check-compilation:
-    # Use the latest Windows runner available on GitHub Actions
     runs-on: windows-latest
 
     defaults:
       run:
-        # Use MSYS2 shell to provide a consistent GCC/G++ environment
         shell: msys2 {0}
 
     steps:
-      # 1. Checkout the repository content to the runner machine
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # 2. Setup MSYS2 environment and install the required MINGW64 packages
-      # Note: MINGW64 is used for better package compatibility with Crypto++
       - name: Setup MSYS2 and Libraries
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
           update: true
+          # Updated package names to ensure compatibility in MINGW64 environment
           install: >-
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-boost
-            mingw-w64-x86_64-cryptopp
+            mingw-w64-x86_64-crypto++
 
-      # 3. Verify the C++ Client compilation
       - name: Verify Compilation
         run: |
           cd Client
-          # Compile without generating an output file to verify code integrity
           g++ main.cpp MessageUClient.cpp RSAWrapper.cpp Base64Wrapper.cpp AESWrapper.cpp -o /dev/null -std=c++17 -lWs2_32 -lpthread -lcryptopp

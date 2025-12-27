@@ -51,6 +51,20 @@ Ensure you have the following installed:
 
 ### 3. Client Setup
 
-1. Navigate to the client directory: `cd client/src`
-2. **Compile the Client:** ```bash
-   g++ main.cpp MessageUClient.cpp RSAWrapper.cpp Base64Wrapper.cpp AESWrapper.cpp -o main.exe -std=c++17 -lWs2_32 -lpthread -lcryptopp -I../include
+1. Navigate to the client directory:
+
+```bash
+  cd client/src
+```
+
+2. **Compile the Client:**
+
+```bash
+  g++ main.cpp MessageUClient.cpp RSAWrapper.cpp Base64Wrapper.cpp AESWrapper.cpp -o main.exe -std=c++17 -lWs2_32 -lpthread -lcryptopp -I../include
+```
+
+3. **Execute the Client:**
+
+```bash
+./main.exe
+```

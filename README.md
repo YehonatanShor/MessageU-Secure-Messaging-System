@@ -1,6 +1,6 @@
 # defensive-programing
 
-![Compilation Check](https://github.com/YehonatanShor/MessageU-Secure-Messaging-System/actions/workflows/check.yml/badge.svg)
+![client Compilation Check](https://github.com/YehonatanShor/MessageU-Secure-Messaging-System/actions/workflows/check.yml/badge.svg)
 
 ## Title: MessageU - Secure Messaging System
 
@@ -15,6 +15,15 @@ Description: A secure, encrypted client-server messaging application implementin
 - **Persistent Storage:** Server-side data management using SQLite database.
 - **Robust Functionality:** Supports user registration, file transfer, message queueing, and secure user deletion.
 - **Defensive Coding:** Handles edge cases, buffer overflows protections, and rigorous input validation.
+
+## CI/CD and Quality Assurance
+
+This project implements a professional DevOps pipeline using **GitHub Actions**:
+
+- **Continuous Integration (CI):** \* **C++ Client:** Automated compilation check on Windows environments (MinGW64).
+  - **Python Server:** Static code analysis (Linting) using `flake8` to ensure PEP8 compliance and syntax integrity.
+  - **Integration Testing:** Automated simulation of a mock client interacting with the server to verify the binary protocol and database logic.
+- **Continuous Deployment (CD):** \* Automated release system that builds a static Windows executable and publishes it to GitHub Releases upon tag creation (e.g., `v1.2`).
 
 ## Tech Stack:
 
@@ -71,3 +80,11 @@ g++ main.cpp MessageUClient.cpp RSAWrapper.cpp Base64Wrapper.cpp AESWrapper.cpp 
 ```
 
 _(Note: Ensure the `server.info` file is correctly configured in the Client directory with the server's IP and Port before execution.)_
+
+### Running Tests
+
+To run the integration tests manually:
+
+1. Ensure the server is running.
+2. Navigate to the root directory.
+3. Run: `python tests/integration_test.py`

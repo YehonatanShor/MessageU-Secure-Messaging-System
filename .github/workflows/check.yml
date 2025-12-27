@@ -53,19 +53,19 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install flake8
-          if [ -f Server/requirements.txt ]; then pip install -r Server/requirements.txt; fi
+          if [ -f server/requirements.txt ]; then pip install -r Server/requirements.txt; fi
 
       - name: Run Static Code Analysis (flake8)
         run: |
           # Fails the build if there are syntax errors or undefined names
-          flake8 Server --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 server --count --select=E9,F63,F7,F82 --show-source --statistics
           # Warnings and complexity check (Optional: exit-zero to not fail build on style)
-          flake8 Server --count --max-complexity=10 --max-line-length=127 --statistics
+          flake8 server --count --max-complexity=10 --max-line-length=127 --statistics
 
       - name: Run Integration Test
         run: |
           # 1. Start the server in the background
-          python Server/server.py & 
+          python server/server.py & 
           # 2. Wait a few seconds for server to initialize
           sleep 5 
           # 3. Run the integration script

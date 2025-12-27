@@ -46,8 +46,17 @@ Ensure you have the following installed:
 
 ### 2. Server Setup
 
-1. Navigate to the server directory: `cd server`
-2. Run the server: `python server.py`
+1. Navigate to the server directory:
+
+```bash
+  cd server
+```
+
+2. Run the server:
+
+```bash
+  `python server.py`
+```
 
 ### 3. Client Setup
 

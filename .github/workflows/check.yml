@@ -67,8 +67,12 @@ jobs:
       - name: Run Integration Test
         run: |
 
-          # Start the server in the background
-          python server/server.py & 
+          # Change directory into 'server' so python can find 'myport.info'
+          cd server
+          python server.py &
+
+          # Go back to root directory to run the test script correctly
+          cd ..
 
           # Wait for server and DB to be ready
           sleep 5 

@@ -1,90 +1,56 @@
-# defensive-programing
+# MessageU - Secure Messaging System
 
-![client Compilation Check](https://github.com/YehonatanShor/MessageU-Secure-Messaging-System/actions/workflows/check.yml/badge.svg)
+![Code Compilation Check](https://github.com/YehonatanShor/MessageU-Secure-Messaging-System/actions/workflows/check.yml/badge.svg)
+![Latest Release](https://img.shields.io/github/v/release/YehonatanShor/MessageU-Secure-Messaging-System)
 
-## Title: MessageU - Secure Messaging System
+## Description
 
-Description: A secure, encrypted client-server messaging application implementing a custom application-layer protocol. The system features a C++ multi-threaded client and a Python server, designed with a focus on Defensive Programming principles and cryptographic security.
+A secure, encrypted client-server messaging application implementing a custom application-layer protocol. The system features a C++ multi-threaded client and a Python server, designed with a focus on Defensive Programming principles and cryptographic security.
 
 ## Key Features:
 
 - **Hybrid E2EE Encryption:** Implements RSA (1024-bit) for key exchange and AES (CBC mode).
-  - **Security Enhancement:** Includes per-message generation of a **cryptographically secure, random Initialization Vector (IV)** to prevent pattern detection attacks.
-- **Custom Binary Protocol:** Designed and implemented a proprietary binary protocol over TCP/IP (Little-Endian/Big-Endian handling).
-- **Cross-Language Architecture:** Interoperability between a C++17 client (using Boost.Asio) and a Python 3 server.
+- **Security Enhancement:** Includes per-message generation of a **cryptographically secure, random Initialization Vector (IV)** to prevent pattern detection attacks.
+- **Custom Binary Protocol:** Designed and implemented a proprietary binary protocol over TCP/IP (Big-Endian handling).
+- **Cross-Language Architecture:** Interoperability between a C++17 client (using Boost.Asio) and a Python 3.12 server.
 - **Persistent Storage:** Server-side data management using SQLite database.
 - **Robust Functionality:** Supports user registration, file transfer, message queueing, and secure user deletion.
-- **Defensive Coding:** Handles edge cases, buffer overflows protections, and rigorous input validation.
+- **Defensive Coding:** Handles edge cases, buffer overflow protections, and rigorous input validation.
 
-## CI/CD and Quality Assurance
+## CI/CD & Automated Testing
 
-This project implements a professional DevOps pipeline using **GitHub Actions**:
+This project implements a professional DevOps pipeline using **GitHub Actions**, ensuring code reliability through:
 
-- **Continuous Integration (CI):** \* **C++ Client:** Automated compilation check on Windows environments (MinGW64).
-  - **Python Server:** Static code analysis (Linting) using `flake8` to ensure PEP8 compliance and syntax integrity.
-  - **Integration Testing:** Automated simulation of a mock client interacting with the server to verify the binary protocol and database logic.
-- **Continuous Deployment (CD):** \* Automated release system that builds a static Windows executable and publishes it to GitHub Releases upon tag creation (e.g., `v1.2`).
+- **Continuous Integration (CI):** \* **Automated Compilation:** Cross-platform checks for the C++ Client (Windows/MinGW64).
+  - **Static Code Analysis:** Automated linting with `flake8` to maintain PEP8 standards.
+- **End-to-End Integration Tests:** A sophisticated Python suite that simulates multiple clients to verify:
+  - **Full Protocol Flow:** Registration, user listing, and RSA public key exchange.
+  - **Encrypted Messaging:** Validation of symmetric key transfer and E2EE message delivery.
+  - **Edge Case Handling:** Verification of conflict handling (duplicate registrations) and user deletion logic.
+- **Continuous Deployment (CD):** Automated release system that builds and publishes Windows executables upon tag creation (e.g., `v1.4`).
 
 ## Tech Stack:
 
-Client: C++17, Boost.Asio (Networking), Crypto++ (Encryption), OOP.
-
-Server: Python 3, Selectors API (I/O Multiplexing), SQLite3.
+- **Client:** C++17, Boost.Asio (Networking), Crypto++ (Encryption), OOP.
+- **Server:** Python 3.12, Selectors API (I/O Multiplexing), SQLite3.
 
 ## How to Run:
 
-The project requires separate compilation for the C++ Client and execution for the Python Server.
-
 ### 1. Prerequisites
 
-Ensure you have the following installed and linked:
+Ensure you have the following installed:
 
 - **C++ Compiler:** GCC/G++ (C++17 standard)
 - **Libraries (Client):** Boost.Asio, Crypto++
-- **Python 3** (Server)
+- **Python 3.12** (Server)
 
-### 2. Server Setup (Python)
+### 2. Server Setup
 
-The server reads the desired port from `myport.info` (if present) or uses a default.
+1. Navigate to the server directory: `cd server`
+2. Run the server: `python server.py`
 
-1. Navigate to the Server directory:
+### 3. Client Setup
 
-```bash
-cd Server/
-```
-
-2. Run the server:
-
-```bash
-python3 server.py
-```
-
-### 3. Client Setup and Execution (C++)
-
-1. Navigate to the Client directory:
-
-```bash
-cd Client/
-```
-
-2. **Compile the Client:** Use the following command. Note: Compilation flags and library paths (`-lWs2_32 -lpthread -lcryptopp`) must match your specific system configuration.
-
-```bash
-g++ main.cpp MessageUClient.cpp RSAWrapper.cpp Base64Wrapper.cpp AESWrapper.cpp -o main.exe -std=c++17 -lWs2_32 -lpthread -lcryptopp
-```
-
-3. **Execute the Client:**
-
-```bash
-./main.exe
-```
-
-_(Note: Ensure the `server.info` file is correctly configured in the Client directory with the server's IP and Port before execution.)_
-
-### Running Tests
-
-To run the integration tests manually:
-
-1. Ensure the server is running.
-2. Navigate to the root directory.
-3. Run: `python tests/integration_test.py`
+1. Navigate to the client directory: `cd client/src`
+2. **Compile the Client:** ```bash
+   g++ main.cpp MessageUClient.cpp RSAWrapper.cpp Base64Wrapper.cpp AESWrapper.cpp -o main.exe -std=c++17 -lWs2_32 -lpthread -lcryptopp -I../include

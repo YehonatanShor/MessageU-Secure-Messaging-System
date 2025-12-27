@@ -49,12 +49,14 @@ jobs:
 
       - name: Install Dependencies and Linters
         run: |
+
           python -m pip install --upgrade pip
           pip install flake8
           if [ -f server/requirements.txt ]; then pip install -r server/requirements.txt; fi
 
       - name: Run Static Code Analysis (flake8)
         run: |
+
           # 1. Critical Syntax Check: Fails if the code cannot run at all
           flake8 server --count --select=E9,F63,F7,F82 --show-source --statistics
 
@@ -64,8 +66,6 @@ jobs:
 
       - name: Run Integration Test
         run: |
-          # Create port info file for server initialization
-          echo "1357" > server/myport.info
 
           # Start the server in the background
           python server/server.py & 

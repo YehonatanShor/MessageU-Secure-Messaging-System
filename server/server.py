@@ -3,7 +3,6 @@ import socket
 import struct  # For packing/unpacking binary data
 import uuid    # For generating unique client IDs
 import sqlite3  # For database operations
-import os  # For file operations
 from datetime import datetime  # For timestamping messages
 
 DEFAULT_PORT = 1357  # Default port if port file is missing or invalid

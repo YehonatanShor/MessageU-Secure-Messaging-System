@@ -64,9 +64,14 @@ jobs:
 
       - name: Run Integration Test
         run: |
-          # 1. Start the server in the background
+          # Create port info file so server knows where to listen
+          echo "1357" > server/myport.info
+
+          # Start the server in the background using the correct path
           python server/server.py & 
-          # 2. Wait a few seconds for server to initialize
+
+          # Give the server time to initialize the database and socket
           sleep 5 
-          # 3. Run the integration script
+
+          # Run the updated integration script
           python tests/integration_test.py

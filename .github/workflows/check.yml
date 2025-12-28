@@ -79,3 +79,7 @@ jobs:
 
           # Execute the registration integration test
           python tests/integration_test.py
+
+      - name: Build Docker Image
+        run: |
+          docker build -t messageu-server-test .

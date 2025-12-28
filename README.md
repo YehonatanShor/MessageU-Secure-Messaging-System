@@ -21,7 +21,8 @@ A secure, encrypted client-server messaging application implementing a custom ap
 
 This project implements a professional DevOps pipeline using **GitHub Actions**, ensuring code reliability through:
 
-- **Continuous Integration (CI):** \* **Automated Compilation:** Cross-platform checks for the C++ Client (Windows/MinGW64).
+- **Continuous Integration (CI):**
+  - **Automated Compilation:** Cross-platform checks for the C++ Client (Windows/MinGW64).
   - **Static Code Analysis:** Automated linting with `flake8` to maintain PEP8 standards.
 - **End-to-End Integration Tests:** A sophisticated Python suite that simulates multiple clients to verify:
   - **Full Protocol Flow:** Registration, user listing, and RSA public key exchange.
@@ -88,4 +89,26 @@ To verify the server logic locally:
 
 ```bash
   python tests/integration_test.py
+```
+
+## Deployment with Docker
+
+For easy deployment and environment isolation, you can run the server using Docker:
+
+1. Build the image:
+
+```bash
+  docker build -t messageu-server .
+```
+
+2. Run the container:
+
+```bash
+  docker run -p 1234:1234 messageu-server
+```
+
+Alternatively, use Docker Compose:
+
+```bash
+  docker-compose up
 ```

@@ -66,25 +66,26 @@ Ensure you have the following installed:
   cd client/src
 ```
 
-2. **Compile the Client:**
+2. Compile the Client:
 
 ```bash
   g++ main.cpp MessageUClient.cpp RSAWrapper.cpp Base64Wrapper.cpp AESWrapper.cpp -o main.exe -std=c++17 -lWs2_32 -lpthread -lcryptopp -I../include
 ```
 
-3. **Execute the Client:**
+3. Execute the Client:
 
 ```bash
-./main.exe
+  ./main.exe
 ```
 
-4. **Running Integration Tests:**
-   To verify the server logic locally:
+### 4. Running Integration Tests:
 
-- Ensure the server is running.
+To verify the server logic locally:
 
-- From the root directory, run:
+1. Ensure the server is running.
+
+2. From the root directory, run:
 
 ```bash
-python tests/integration_test.py
+  python tests/integration_test.py
 ```

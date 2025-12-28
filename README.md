@@ -78,7 +78,7 @@ Ensure you have the following installed:
 ./main.exe
 ```
 
-4. **Running Integration Tests**
+4. **Running Integration Tests:**
    To verify the server logic locally:
 
 - Ensure the server is running.

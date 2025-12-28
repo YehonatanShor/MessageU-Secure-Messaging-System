@@ -56,7 +56,7 @@ Ensure you have the following installed:
 2. Run the server:
 
 ```bash
-  `python server.py`
+  python server.py
 ```
 
 ### 3. Client Setup

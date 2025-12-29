@@ -83,3 +83,28 @@ jobs:
       - name: Build Docker Image
         run: |
           docker build -t messageu-server-test .
+
+  # New Job: Push to Docker Hub only on Tag creation
+  push-to-dockerhub:
+    needs: [check-server-compilation] # Run only if tests pass
+    if: startsWith(github.ref, 'refs/tags/') # Run only when creating a release tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          # Replace 'yehonatanshor' with your actual Docker Hub username
+          tags: |
+            yehonatanshor/messageu-server:latest
+            yehonatanshor/messageu-server:${{ github.ref_name }}

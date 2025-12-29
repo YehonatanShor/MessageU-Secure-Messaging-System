@@ -7,6 +7,26 @@
 
 A secure, encrypted client-server messaging application implementing a custom application-layer protocol. The system features a C++ multi-threaded client and a Python server, designed with a focus on Defensive Programming principles and cryptographic security.
 
+## 🚀 Quick Start - Running the System
+
+You don't need to install anything except Docker to see the server in action!
+
+### 1. Run the Server (Instant Deployment)
+
+The server is available as a pre-built image on Docker Hub. Run it with one command:
+
+```bash
+docker run -d -p 1234:1234 --name msg-server yehonatanshor/messageu-server:latest
+```
+
+### 2. Run the Client
+
+1. Download MessageUClient.exe from the [Latest Releases.](https://github.com/YehonatanShor/MessageU-Secure-Messaging-System/releases)
+
+2. Ensure your server.info points to 127.0.0.1 1234.
+
+3. Run MessageUClient.exe and start messaging!
+
 ## Key Features:
 
 - **Hybrid E2EE Encryption:** Implements RSA (1024-bit) for key exchange and AES (CBC mode).
@@ -22,30 +42,25 @@ A secure, encrypted client-server messaging application implementing a custom ap
 This project implements a professional DevOps pipeline using **GitHub Actions**, ensuring code reliability through:
 
 - **Continuous Integration (CI):**
+
   - **Automated Compilation:** Cross-platform checks for the C++ Client (Windows/MinGW64).
   - **Static Code Analysis:** Automated linting with `flake8` to maintain PEP8 standards.
-- **End-to-End Integration Tests:** A sophisticated Python suite that simulates multiple clients to verify:
-  - **Full Protocol Flow:** Registration, user listing, and RSA public key exchange.
-  - **Encrypted Messaging:** Validation of symmetric key transfer and E2EE message delivery.
+  - **Docker Build Verification:** Ensuring the Dockerfile remains functional on every update.
+
+- **Continuous Deployment (CD):**
+  - **Automated Distribution:** Builds and publishes Windows executables upon tag creation.
+  - **Docker Hub Integration:** Automatically pushes the latest server image to Docker Hub for instant deployment.
   - **Edge Case Handling:** Verification of conflict handling (duplicate registrations) and user deletion logic.
-- **Continuous Deployment (CD):** Automated release system that builds and publishes Windows executables upon tag creation (e.g., `v1.4`).
+- **End-to-End Integration Tests:** A sophisticated Python suite that simulates multiple clients to verify full protocol flow, key exchange, and E2EE delivery.
 
 ## Tech Stack:
 
 - **Client:** C++17, Boost.Asio (Networking), Crypto++ (Encryption), OOP.
 - **Server:** Python 3.12, Selectors API (I/O Multiplexing), SQLite3.
 
-## How to Run:
+## How to Build & Test (For Developers)
 
-### 1. Prerequisites
-
-Ensure you have the following installed:
-
-- **C++ Compiler:** GCC/G++ (C++17 standard)
-- **Libraries (Client):** Boost.Asio, Crypto++
-- **Python 3.12** (Server)
-
-### 2. Server Setup
+### 1. Manual Server Setup
 
 1. Navigate to the server directory:
 
@@ -59,27 +74,21 @@ Ensure you have the following installed:
   python server.py
 ```
 
-### 3. Client Setup
+### 2. Client Compilation
 
-1. Navigate to the client directory:
+1. Navigate to the client directory: cd client/src
 
 ```bash
   cd client/src
 ```
 
-2. Compile the Client:
+2. Compile:
 
 ```bash
   g++ main.cpp MessageUClient.cpp RSAWrapper.cpp Base64Wrapper.cpp AESWrapper.cpp -o main.exe -std=c++17 -lWs2_32 -lpthread -lcryptopp -I../include
 ```
 
-3. Execute the Client:
-
-```bash
-  ./main.exe
-```
-
-### 4. Running Integration Tests:
+### 3. Running Integration Tests
 
 To verify the server logic locally:
 
@@ -91,24 +100,10 @@ To verify the server logic locally:
   python tests/integration_test.py
 ```
 
-## Deployment with Docker
+### 4. Local Docker Orchestration
 
-For easy deployment and environment isolation, you can run the server using Docker:
-
-1. Build the image:
+To build and run the entire environment locally (including database persistence):
 
 ```bash
-  docker build -t messageu-server .
-```
-
-2. Run the container:
-
-```bash
-  docker run -p 1234:1234 messageu-server
-```
-
-Alternatively, use Docker Compose:
-
-```bash
-  docker-compose up
+  docker-compose up --build
 ```

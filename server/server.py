@@ -639,7 +639,7 @@ def main():
     sel.register(
         sock, selectors.EVENT_READ, data={
             "callback": accept})  # Accept new connections
-    print(f"Server (v{SERVER_VERSION}) listening on localhost:{port}")
+    print(f"Server (v{SERVER_VERSION}) listening on 0.0.0.0: {port}")
 
     # Main event loop
     try:

@@ -3,7 +3,7 @@
 #include <string>
 #include <algorithm>
 
-// Constants for menu (from your code)
+// Constants for menu options
 const std::string REGISTER_STR = "110";
 const std::string CLIENTS_LIST_STR = "120";
 const std::string REQUEST_PUBLIC_KEY_STR = "130";

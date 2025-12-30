@@ -16,16 +16,36 @@ You don't need to install anything except Docker to see the server in action!
 The server is available as a pre-built image on Docker Hub. Run it with one command:
 
 ```bash
-docker run -d -p 1234:1234 --name msg-server yehonatanshor/messageu-server:latest
+  docker run -d -p 1234:1234 --name msg-server yehonatanshor/messageu-server:latest
 ```
 
-### 2. Run the Client
+Note: The -d flag runs the server in the background.
+
+### 2. View Server Logs (Live Monitoring)
+
+To see the server activity (connected clients, encrypted messages, etc.) in real-time:
+
+```bash
+  docker logs -f msg-server
+```
+
+(Press Ctrl+C to exit the log view without stopping the server)
+
+### 3. Run the Client
 
 1. Download MessageUClient.exe from the [Latest Releases.](https://github.com/YehonatanShor/MessageU-Secure-Messaging-System/releases)
 
 2. Ensure your server.info points to 127.0.0.1 1234.
 
 3. Run MessageUClient.exe and start messaging!
+
+### 4. Cleanup (Stop & Remove)
+
+When you are done, run this command to stop the server and free up the port for next time:
+
+```bash
+  docker rm -f msg-server
+```
 
 ## Key Features:
 

@@ -633,7 +633,7 @@ def main():
     # Create listening socket
     sock = socket.socket()
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(('0.0.0.0', port))
+    sock.bind(('0.0.0.0', port)) # Bind to all interfaces
     sock.listen(100)
     sock.setblocking(False)  # Non-blocking socket
     sel.register(

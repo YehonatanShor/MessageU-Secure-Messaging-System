@@ -39,18 +39,22 @@ public:
     void handle_send_message_options(const std::string& menu_choice); // Handles options 150, 151, 152, 153
     void handle_delete_user();             // 154
 
-private:
-    // Network connection
-    std::unique_ptr<Connection> connection_;
-
     // Client state structure (replaces g_my_info)
+    // Made public to allow handlers to access it
     struct MyInfo {
         std::string name;
         std::string uuid_hex;
         std::string uuid_bin;
         // unique_ptr automatically handles memory deletion
         std::unique_ptr<RSAPrivateWrapper> keys; 
-    } g_my_info;
+    };
+
+private:
+    // Network connection
+    std::unique_ptr<Connection> connection_;
+
+    // Client state instance
+    MyInfo g_my_info;
 
     bool g_is_registered = false; // Registration status flag
     std::map<std::string, ClientInfo> g_client_db; // In-RAM client database

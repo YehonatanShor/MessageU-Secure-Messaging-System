@@ -5,51 +5,8 @@ import uuid    # For generating unique client IDs
 import sqlite3  # For database operations
 from datetime import datetime  # For timestamping messages
 
-DEFAULT_PORT = 1357  # Default port if port file is missing or invalid
-PORT_FILENAME = "myport.info"
-DB_FILENAME = "defensive.db"
-
-# client request code from server
-CLIENT_VERSION = 2
-REQUEST_CODE_REGISTER = 600
-REQUEST_CODE_CLIENTS_LIST = 601
-REQUEST_CODE_PUBLIC_KEY = 602
-REQUEST_CODE_SEND_TEXT_MESSAGE = 603
-REQUEST_CODE_WAITING_MESSAGES = 604
-REQUEST_CODE_DELETE_USER = 605
-
-# Message Types (for payload of code 603)
-MSG_TYPE_SYM_KEY_REQUEST = 1
-MSG_TYPE_SYM_KEY_SEND = 2
-MSG_TYPE_TEXT_MESSAGE = 3
-MSG_TYPE_FILE = 4
-
-# size in bytes
-CLIENT_UUID_SIZE = 16
-CLIENT_VERSION_SIZE = 1
-REQUEST_CODE_SIZE = 2
-REQUEST_PAYLOAD_SIZE = 4
-# ClientID(16) + Version(1) + Code(2) + PayloadSize(4)
-REQUEST_HEADER_SIZE = 16 + 1 + 2 + 4
-USERNAME_FIXED_SIZE = 255
-PUBLIC_KEY_FIXED_SIZE = 160
-REGISTRATION_PAYLOAD_SIZE = USERNAME_FIXED_SIZE + PUBLIC_KEY_FIXED_SIZE
-
-# server response code to client
-SERVER_VERSION = 2
-RESPONSE_CODE_REGISTER_SUCCESS = 2100
-RESPONSE_CODE_DISPLAYING_CLIENTS_LIST = 2101
-RESPONSE_CODE_SEND_PUBLIC_KEY = 2102
-RESPONSE_CODE_SEND_TEXT_MESSAGE = 2103
-RESPONSE_CODE_PULL_WAITING_MESSAGE = 2104
-RESPONSE_CODE_DELETE_USER_SUCCESS = 2105
-RESPONSE_CODE_GENERAL_ERROR = 9000
-
-# size in bytes
-SERVER_VERSION_SIZE = 1
-RESPONSE_CODE_SIZE = 2
-RESPONSE_PAYLOAD_SIZE = 4
-RESPONSE_HEADER_SIZE = 1 + 2 + 4  # Version(1) + Code(2) + PayloadSize(4)
+# Import all protocol and configuration constants
+from config import constants
 
 # Database Manager
 
@@ -228,7 +185,7 @@ class DatabaseManager:
 
 
 # Global DB instance
-db = DatabaseManager(DB_FILENAME)
+db = DatabaseManager(constants.DB_FILENAME)
 sel = selectors.DefaultSelector()
 
 # Connection State Manager for each client connection
@@ -241,7 +198,7 @@ class ConnectionState:
     def reset_for_new_request(self):
         self.state = "HEADER"
         self.buffer = b""
-        self.expected_len = REQUEST_HEADER_SIZE
+        self.expected_len = constants.REQUEST_HEADER_SIZE
         self.client_id = b""
         self.request_code = 0
 
@@ -258,7 +215,7 @@ def send_response(conn, response_code, payload):
     try:
         header = struct.pack(
             '!BHI',
-            SERVER_VERSION,
+            constants.SERVER_VERSION,
             response_code,
             len(payload))
         conn.sendall(header + payload)
@@ -273,8 +230,8 @@ def send_error_response(conn, error_message):
     payload = error_message.encode('utf-8')
     header = struct.pack(
         '!BHI',
-        SERVER_VERSION,
-        RESPONSE_CODE_GENERAL_ERROR,
+        constants.SERVER_VERSION,
+        constants.RESPONSE_CODE_GENERAL_ERROR,
         len(payload))
     try:
         conn.sendall(header + payload)
@@ -291,8 +248,8 @@ def send_registration_success(conn, client_uuid_bytes):
             client_uuid_bytes.hex()}")
     header = struct.pack(
         '!BHI',
-        SERVER_VERSION,
-        RESPONSE_CODE_REGISTER_SUCCESS,
+        constants.SERVER_VERSION,
+        constants.RESPONSE_CODE_REGISTER_SUCCESS,
         len(client_uuid_bytes))
     try:
         conn.sendall(header + client_uuid_bytes)
@@ -305,13 +262,13 @@ def send_registration_success(conn, client_uuid_bytes):
 def handle_registration(conn, payload):
     try:
         # Validate payload size
-        if len(payload) != REGISTRATION_PAYLOAD_SIZE:
+        if len(payload) != constants.REGISTRATION_PAYLOAD_SIZE:
             send_error_response(conn, "Invalid registration payload size.")
             return
 
         # Extract username and public key
-        username_bytes = payload[0:USERNAME_FIXED_SIZE]
-        public_key = payload[USERNAME_FIXED_SIZE:]
+        username_bytes = payload[0:constants.USERNAME_FIXED_SIZE]
+        public_key = payload[constants.USERNAME_FIXED_SIZE:]
         username = username_bytes.decode('utf-8').rstrip('\0')
 
         # Validate username
@@ -359,13 +316,13 @@ def handle_client_list(conn, client_id_bytes):
 
         # Append UUID and padded username to payload
         payload_chunks.append(uuid_bytes)  # 16 bytes
-        name_bytes = username.encode('utf-8').ljust(USERNAME_FIXED_SIZE, b'\0')
+        name_bytes = username.encode('utf-8').ljust(constants.USERNAME_FIXED_SIZE, b'\0')
         payload_chunks.append(name_bytes)  # 255 bytes
 
     # Send users list to requester
     send_response(
         conn,
-        RESPONSE_CODE_DISPLAYING_CLIENTS_LIST,
+        constants.RESPONSE_CODE_DISPLAYING_CLIENTS_LIST,
         b"".join(payload_chunks))
 
 # Handles sending public key of requested user to requester
@@ -381,7 +338,7 @@ def handle_public_key_request(conn, client_id_bytes, payload):
     db.update_last_seen(client_id_bytes)
 
     # Validate payload size
-    if len(payload) != CLIENT_UUID_SIZE:
+    if len(payload) != constants.CLIENT_UUID_SIZE:
         send_error_response(conn, "Invalid target UUID size.")
         return
 
@@ -398,7 +355,7 @@ def handle_public_key_request(conn, client_id_bytes, payload):
         # send TargetUUID (16) + PublicKey (160) to client
         send_response(
             conn,
-            RESPONSE_CODE_SEND_PUBLIC_KEY,
+            constants.RESPONSE_CODE_SEND_PUBLIC_KEY,
             target_uuid_bytes +
             target_pub_key)
     else:
@@ -418,11 +375,11 @@ def handle_send_message(conn, client_id_bytes, payload):
 
     # # Extract message
     try:
-        target_id_bytes = payload[:CLIENT_UUID_SIZE]
-        msg_type = payload[CLIENT_UUID_SIZE]
+        target_id_bytes = payload[:constants.CLIENT_UUID_SIZE]
+        msg_type = payload[constants.CLIENT_UUID_SIZE]
         content_size = struct.unpack(
-            '!I', payload[CLIENT_UUID_SIZE + 1: CLIENT_UUID_SIZE + 5])[0]
-        content = payload[CLIENT_UUID_SIZE + 5:]
+            '!I', payload[constants.CLIENT_UUID_SIZE + 1: constants.CLIENT_UUID_SIZE + 5])[0]
+        content = payload[constants.CLIENT_UUID_SIZE + 5:]
 
         # Validate message size
         if len(content) != content_size:
@@ -447,7 +404,7 @@ def handle_send_message(conn, client_id_bytes, payload):
 
         # Send client confirmation: TargetUUID (16) + MsgID (4)
         response_payload = target_id_bytes + struct.pack('!I', msg_id)
-        send_response(conn, RESPONSE_CODE_SEND_TEXT_MESSAGE, response_payload)
+        send_response(conn, constants.RESPONSE_CODE_SEND_TEXT_MESSAGE, response_payload)
 
     except Exception as e:
         print(f"Error handling send_message: {e}")
@@ -469,7 +426,7 @@ def handle_pull_messages(conn, client_id_bytes):
 
     # 2a. If no messages, send empty response
     if not messages:
-        send_response(conn, RESPONSE_CODE_PULL_WAITING_MESSAGE, b"")
+        send_response(conn, constants.RESPONSE_CODE_PULL_WAITING_MESSAGE, b"")
         return
 
     # 3. Build payload and send
@@ -487,7 +444,7 @@ def handle_pull_messages(conn, client_id_bytes):
 
     send_response(
         conn,
-        RESPONSE_CODE_PULL_WAITING_MESSAGE,
+        constants.RESPONSE_CODE_PULL_WAITING_MESSAGE,
         b"".join(payload_chunks))
 
 # Handles request to delete user
@@ -505,7 +462,7 @@ def handle_delete_user(conn, client_id_bytes):
     # 2. Perform deletion
     if db.delete_client(client_id_bytes):
         print(f"User {client_name} deleted successfully.")
-        send_response(conn, RESPONSE_CODE_DELETE_USER_SUCCESS, b"")
+        send_response(conn, constants.RESPONSE_CODE_DELETE_USER_SUCCESS, b"")
     else:
         send_error_response(conn, "Failed to delete user from database.")
 
@@ -518,17 +475,17 @@ def handle_request(conn, state):
     payload = state.buffer[:state.expected_len]
 
     # Dispatch based on request code
-    if state.request_code == REQUEST_CODE_REGISTER:
+    if state.request_code == constants.REQUEST_CODE_REGISTER:
         handle_registration(conn, payload)
-    elif state.request_code == REQUEST_CODE_CLIENTS_LIST:
+    elif state.request_code == constants.REQUEST_CODE_CLIENTS_LIST:
         handle_client_list(conn, state.client_id)
-    elif state.request_code == REQUEST_CODE_PUBLIC_KEY:
+    elif state.request_code == constants.REQUEST_CODE_PUBLIC_KEY:
         handle_public_key_request(conn, state.client_id, payload)
-    elif state.request_code == REQUEST_CODE_SEND_TEXT_MESSAGE:
+    elif state.request_code == constants.REQUEST_CODE_SEND_TEXT_MESSAGE:
         handle_send_message(conn, state.client_id, payload)
-    elif state.request_code == REQUEST_CODE_WAITING_MESSAGES:
+    elif state.request_code == constants.REQUEST_CODE_WAITING_MESSAGES:
         handle_pull_messages(conn, state.client_id)
-    elif state.request_code == REQUEST_CODE_DELETE_USER:
+    elif state.request_code == constants.REQUEST_CODE_DELETE_USER:
         handle_delete_user(conn, state.client_id)
     else:
         print(f"Unknown request code: {state.request_code}")
@@ -566,15 +523,15 @@ def read(conn, mask):
     while True:
         # Process HEADER
         if state.state == "HEADER":
-            if len(state.buffer) >= REQUEST_HEADER_SIZE:
+            if len(state.buffer) >= constants.REQUEST_HEADER_SIZE:
                 # Extract header
-                header_data = state.buffer[:REQUEST_HEADER_SIZE]
-                client_id = header_data[:CLIENT_UUID_SIZE]
+                header_data = state.buffer[:constants.REQUEST_HEADER_SIZE]
+                client_id = header_data[:constants.CLIENT_UUID_SIZE]
                 version, code, payload_size = struct.unpack(
-                    '!BHI', header_data[CLIENT_UUID_SIZE:])
+                    '!BHI', header_data[constants.CLIENT_UUID_SIZE:])
 
                 # Verify client version
-                if version != CLIENT_VERSION:
+                if version != constants.CLIENT_VERSION:
                     send_error_response(
                         conn, f"Wrong client version: {version}")
                     sel.unregister(conn)
@@ -583,7 +540,7 @@ def read(conn, mask):
 
                 # Set to expect payload
                 state.set_payload_state(client_id, code, payload_size)
-                state.buffer = state.buffer[REQUEST_HEADER_SIZE:]
+                state.buffer = state.buffer[constants.REQUEST_HEADER_SIZE:]
             else:
                 break
 
@@ -619,11 +576,11 @@ def accept(sock, mask):
 
 
 def main():
-    port = 1357  # default port
+    port = constants.DEFAULT_PORT  # default port
 
     # Try to read port from file
     try:
-        with open(PORT_FILENAME, "r") as f:
+        with open(constants.PORT_FILENAME, "r") as f:
             port_str = f.read().strip()
             if port_str:
                 port = int(port_str)
@@ -639,7 +596,7 @@ def main():
     sel.register(
         sock, selectors.EVENT_READ, data={
             "callback": accept})  # Accept new connections
-    print(f"Server (v{SERVER_VERSION}) listening on 0.0.0.0: {port}")
+    print(f"Server (v{constants.SERVER_VERSION}) listening on 0.0.0.0: {port}")
 
     # Main event loop
     try:

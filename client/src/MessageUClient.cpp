@@ -1,6 +1,7 @@
 #include "MessageUClient.h"
 #include "Base64Wrapper.h"
 #include "AESWrapper.h"
+#include "protocol/constants.h"
 #include <iostream>
 #include <fstream>
 #include <filesystem>
@@ -13,57 +14,7 @@
 #include <winsock2.h> // For htonl, ntohl
 #endif
 
-// --- Configuration File ---
-const std::string MY_INFO_FILE = "my.info";
-const std::string SERVER_INFO_FILE = "server.info";
-
-// --- Protocol Constants ---
-const size_t CLIENT_VERSION_SIZE = 1;
-const size_t CLIENT_UUID_SIZE = 16;
-const size_t REQUEST_CODE_SIZE = 2;
-const size_t REQUEST_PAYLOAD_SIZE = 4;
-const size_t USERNAME_FIXED_SIZE = 255;
-const size_t PUBLIC_KEY_FIXED_SIZE = 160;
-const size_t REQUEST_HEADER_SIZE = 16 + 1 + 2 + 4;
-
-// Request Codes
-const uint8_t CLIENT_VERSION = 2;
-const uint16_t REQUEST_CODE_REGISTER = 600;
-const uint16_t REQUEST_CODE_CLIENTS_LIST = 601;
-const uint16_t REQUEST_CODE_PUBLIC_KEY = 602;
-const uint16_t REQUEST_CODE_SEND_MESSAGE = 603;
-const uint16_t REQUEST_CODE_WAITING_MESSAGES = 604;
-const uint16_t REQUEST_CODE_DELETE_USER = 605;
-
-// Response Codes
-const uint16_t RESPONSE_CODE_REGISTER_SUCCESS = 2100;
-const uint16_t RESPONSE_CODE_DISPLAYING_CLIENTS_LIST = 2101;
-const uint16_t RESPONSE_CODE_SEND_PUBLIC_KEY = 2102;
-const uint16_t RESPONSE_CODE_SEND_TEXT_MESSAGE = 2103;
-const uint16_t RESPONSE_CODE_PULL_WAITING_MESSAGE = 2104;
-const uint16_t RESPONSE_CODE_DELETE_USER_SUCCESS = 2105;
-const uint16_t RESPONSE_CODE_GENERAL_ERROR = 9000;
-
-// Server Header Sizes
-const size_t SERVER_VERSION_SIZE = 1;
-const size_t RESPONSE_CODE_SIZE = 2;
-const size_t RESPONSE_PAYLOAD_SIZE = 4;
-const size_t RESPONSE_HEADER_SIZE = 1 + 2 + 4; 
-const size_t RESPONSE_MSG_ID_SIZE = 4; 
-const size_t RESPONSE_MSG_TYPE_SIZE = 1;
-const size_t RESPONSE_MSG_SIZE = 4; 
-
-// Message Types
-const uint8_t MSG_TYPE_SYM_KEY_REQUEST = 1;
-const uint8_t MSG_TYPE_SYM_KEY_SEND = 2;
-const uint8_t MSG_TYPE_TEXT_MESSAGE = 3;
-const uint8_t MSG_TYPE_FILE = 4;
-
-// Protocol Strings, part of menu options
-const std::string SEND_SYMMETRIC_KEY_REQUEST_STR = "151";
-const std::string SEND_SYMMETRIC_KEY_STR = "152";
-const std::string SEND_TEXT_MESSAGE_STR = "150";
-const std::string SEND_FILE_STR = "153";
+using namespace Protocol;  // Import protocol constants into current scope
 
 
     // Helper functions, not part of MessageUClient class

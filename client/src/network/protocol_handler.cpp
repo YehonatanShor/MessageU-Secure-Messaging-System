@@ -1,6 +1,7 @@
 #include "network/protocol_handler.h"
 #include <cstring>
 #include <algorithm>
+#include <stdexcept>
 
 #if defined(_WIN32)
 #include <winsock2.h> // For htonl, ntohl, htons, ntohs

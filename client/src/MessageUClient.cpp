@@ -1,9 +1,9 @@
 #include "MessageUClient.h"
-#include "Base64Wrapper.h"
-#include "AESWrapper.h"
 #include "protocol/constants.h"
 #include "network/connection.h"
 #include "network/protocol_handler.h"
+#include "crypto/key_manager.h"
+#include "crypto/encryption.h"
 #include <iostream>
 #include <fstream>
 #include <filesystem>
@@ -125,7 +125,7 @@ void MessageUClient::load_my_info() {
     g_my_info.uuid_hex = uuid_hex;
     g_my_info.uuid_bin = hex_ascii_to_binary(uuid_hex);
     // Using unique_ptr handles memory automatically
-    g_my_info.keys = std::make_unique<RSAPrivateWrapper>(Base64Wrapper::decode(private_key_b64));
+    g_my_info.keys = KeyManager::load_private_key_from_base64(private_key_b64);
     
     g_is_registered = true;
     std::cout << "Welcome, " << g_my_info.name << "!" << std::endl;
@@ -207,9 +207,9 @@ void MessageUClient::handle_registration()
 
     // Generate new RSA keys - asimmetric key pair
     std::cout << "Generating RSA keys (this may take a moment)...\n";
-    g_my_info.keys = std::make_unique<RSAPrivateWrapper>();
-    std::string public_key_bin = g_my_info.keys->getPublicKey();
-    std::string private_key_b64 = Base64Wrapper::encode(g_my_info.keys->getPrivateKey());
+    g_my_info.keys = KeyManager::generate_rsa_keypair();
+    std::string public_key_bin = KeyManager::get_public_key_binary(*g_my_info.keys);
+    std::string private_key_b64 = KeyManager::encode_private_key_to_base64(*g_my_info.keys);
 
     // Build request using ProtocolHandler
     auto request = ProtocolHandler::build_registration_request(username, public_key_bin);
@@ -448,7 +448,7 @@ void MessageUClient::handle_pull_messages()
             case MSG_TYPE_SYM_KEY_SEND:
                 try {
                     // Decrypt symmetric key using our private key
-                    std::string sym_key = g_my_info.keys->decrypt(content_str);
+                    std::string sym_key = Encryption::decrypt_rsa(*g_my_info.keys, content_str);
                     // Save symmetric key in RAM DB for this user
                     g_client_db[binary_to_hex_ascii(from_uuid)].symmetric_key = sym_key;
                     std::cout << "Symmetric key received.\n";
@@ -466,8 +466,7 @@ void MessageUClient::handle_pull_messages()
                 else {
                     try {
                         // Decrypt the message content using the stored AES key
-                        AESWrapper aes((unsigned char*)sym_key.data(), sym_key.size());
-                        std::string decrypted = aes.decrypt(content_str.data(), content_str.size());
+                        std::string decrypted = Encryption::decrypt_aes(sym_key, content_str.data(), content_str.size());
 
                         // Print text message to console
                         if (msg_type == MSG_TYPE_TEXT_MESSAGE) std::cout << decrypted << "\n";
@@ -530,14 +529,11 @@ void MessageUClient::handle_send_message_options(const std::string& menu_choice)
         }
 
         // Generate a new symmetric key (AES key)
-        unsigned char key[AESWrapper::DEFAULT_KEYLENGTH];
-        AESWrapper::GenerateKey(key, sizeof(key));
-        std::string key_bin((char*)key, sizeof(key));
+        std::string key_bin = Encryption::generate_aes_key();
         
         // Encrypt the symmetric key using the targets public key
         try {
-            RSAPublicWrapper pub(g_client_db[target_hex].public_key);
-            msg_content = pub.encrypt(key_bin);
+            msg_content = Encryption::encrypt_rsa(g_client_db[target_hex].public_key, key_bin);
             // Save this symmetric key in our RAM DB for this user
             g_client_db[target_hex].symmetric_key = key_bin;
             std::cout << "Generated and sent a new symmetric key to " << target_username << ".\n";
@@ -572,8 +568,7 @@ void MessageUClient::handle_send_message_options(const std::string& menu_choice)
 
         // Encrypt the data (text or file content)
         try {
-            AESWrapper aes((unsigned char*)key.data(), key.size());
-            msg_content = aes.encrypt(data_to_encrypt.c_str(), data_to_encrypt.size());
+            msg_content = Encryption::encrypt_aes(key, data_to_encrypt);
         } catch (...) { return; }
     }
 

@@ -105,7 +105,7 @@ This project implements a professional DevOps pipeline using **GitHub Actions**,
 2. Compile:
 
 ```bash
-  g++ main.cpp MessageUClient.cpp RSAWrapper.cpp Base64Wrapper.cpp AESWrapper.cpp network/connection.cpp network/protocol_handler.cpp crypto/key_manager.cpp crypto/encryption.cpp storage/file_manager.cpp storage/client_storage.cpp ui/menu.cpp -o main.exe -std=c++17 -lWs2_32 -lpthread -lcryptopp -I../include
+  g++ main.cpp MessageUClient.cpp RSAWrapper.cpp Base64Wrapper.cpp AESWrapper.cpp network/connection.cpp network/protocol_handler.cpp crypto/key_manager.cpp crypto/encryption.cpp storage/file_manager.cpp storage/client_storage.cpp ui/menu.cpp handlers/base_handler.cpp handlers/registration_handler.cpp handlers/client_list_handler.cpp handlers/public_key_handler.cpp handlers/messaging_handler.cpp handlers/deletion_handler.cpp -o main.exe -std=c++17 -lWs2_32 -lpthread -lcryptopp -I../include
 ```
 
 ### 3. Running Integration Tests

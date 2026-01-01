@@ -82,3 +82,4 @@ void Menu::show_decryption_failed() {
     std::cout << "Decryption failed.\n";
 }
 
+

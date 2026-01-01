@@ -33,3 +33,4 @@ def handle_delete_user(conn, client_id_bytes, db):
         send_error_response(conn, "Failed to delete user from database.")
 
 
+

@@ -51,3 +51,4 @@ def handle_registration(conn, payload, db):
         send_error_response(conn, "Registration failed.")
 
 
+

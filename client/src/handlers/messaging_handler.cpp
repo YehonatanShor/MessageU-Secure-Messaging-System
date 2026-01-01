@@ -134,7 +134,7 @@ void MessagingHandler::handle_pull_messages() {
                 break;
             }
         }
-        std::cout << "\n\n----<EOM>----\n\n";
+        Menu::show_end_of_messages();
     }
 }
 

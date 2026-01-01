@@ -111,6 +111,11 @@ public:
      * Display decryption failed message.
      */
     static void show_decryption_failed();
+    
+    /**
+     * Display end of messages marker.
+     */
+    static void show_end_of_messages();
 };
 
 

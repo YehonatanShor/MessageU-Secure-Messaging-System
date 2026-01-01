@@ -82,4 +82,8 @@ void Menu::show_decryption_failed() {
     std::cout << "Decryption failed.\n";
 }
 
+void Menu::show_end_of_messages() {
+    std::cout << "\n\n----<EOM>----\n\n";
+}
+
 

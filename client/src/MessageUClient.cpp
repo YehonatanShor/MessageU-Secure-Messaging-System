@@ -133,7 +133,7 @@ void MessageUClient::handle_pull_messages()
     handler.handle_pull_messages();
 }
 
-// Handles users choice and calls the appropriate function (inpput 150, 151, 152, 153 / request code 603)
+// Handles users choice and calls the appropriate function (input 150, 151, 152, 153 / request code 603)
 void MessageUClient::handle_send_message_options(const std::string& menu_choice)
 {
     MessagingHandler handler(connection_.get(), &g_my_info, &g_is_registered, &g_client_db);

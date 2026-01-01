@@ -7,6 +7,8 @@ from datetime import datetime  # For timestamping messages
 
 # Import all protocol and configuration constants
 from config import constants
+# Import response building utilities
+from utils.responses import send_response, send_error_response, send_registration_success
 
 # Database Manager
 
@@ -207,54 +209,6 @@ class ConnectionState:
         self.client_id = client_id
         self.request_code = code
         self.expected_len = payload_size
-
-# Send response to client
-
-
-def send_response(conn, response_code, payload):
-    try:
-        header = struct.pack(
-            '!BHI',
-            constants.SERVER_VERSION,
-            response_code,
-            len(payload))
-        conn.sendall(header + payload)
-    except Exception as e:
-        print(f"Error sending response code {response_code}: {e}")
-
-# Send error response to client
-
-
-def send_error_response(conn, error_message):
-    print(f"Sending error to {conn.getpeername()}: {error_message}")
-    payload = error_message.encode('utf-8')
-    header = struct.pack(
-        '!BHI',
-        constants.SERVER_VERSION,
-        constants.RESPONSE_CODE_GENERAL_ERROR,
-        len(payload))
-    try:
-        conn.sendall(header + payload)
-    except Exception as e:
-        print(f"Error sending error response: {e}")
-
-# Send registration success response with assigned UUID to client
-
-
-def send_registration_success(conn, client_uuid_bytes):
-    print(
-        f"Sending registration success to {
-            conn.getpeername()}, UUID: {
-            client_uuid_bytes.hex()}")
-    header = struct.pack(
-        '!BHI',
-        constants.SERVER_VERSION,
-        constants.RESPONSE_CODE_REGISTER_SUCCESS,
-        len(client_uuid_bytes))
-    try:
-        conn.sendall(header + client_uuid_bytes)
-    except Exception as e:
-        print(f"Error sending success response: {e}")
 
 # Handles user registration
 

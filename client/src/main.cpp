@@ -53,6 +53,7 @@ int main()
             }
 			// unrecognized input
             else {
+                // Note: Menu::show_invalid_option() could be used here if we include ui/menu.h
                 std::cout << "Invalid option. Please try again.\n";
             }
         }

@@ -6,6 +6,7 @@
 #include "crypto/encryption.h"
 #include "storage/file_manager.h"
 #include "storage/client_storage.h"
+#include "ui/menu.h"
 #include <iostream>
 #include <filesystem>
 #include <algorithm>
@@ -50,9 +51,9 @@ void MessageUClient::connect() {
     try {
         // Load server info from file
         auto server_info = ClientStorage::load_server_info();
-        std::cout << "Connecting to " << server_info.host << ":" << server_info.port << "..." << std::endl;
+        Menu::show_connecting(server_info.host, server_info.port);
         connection_->connect(server_info.host, server_info.port);
-        std::cout << "Connected successfully.\n";
+        Menu::show_connected();
     } catch (const std::exception& e) {
         throw std::runtime_error(std::string("Connection failed: ") + e.what());
     }
@@ -68,18 +69,7 @@ void MessageUClient::close() {
 // Display menu to user
 void MessageUClient::show_menu() 
 {
-    std::cout << "\nMessageU client at your service.\n\n"
-              << "110) Register\n"
-              << "120) Request for clients list\n"
-              << "130) Request for public key\n"
-              << "140) Request for waiting messages\n"
-              << "150) Send a text message\n"
-              << "151) Send a request for symmetric key\n"
-              << "152) Send your symmetric key\n"
-              << "153) Send a file\n"
-              << "154) Delete user\n"
-              << "0) Exit client\n"
-              << "?\n";
+    Menu::show_main_menu();
 }
 
 // Checks if the my.info file exists
@@ -102,7 +92,7 @@ void MessageUClient::load_my_info() {
     g_my_info.keys = std::move(client_data->private_key);
     
     g_is_registered = true;
-    std::cout << "Welcome, " << g_my_info.name << "!" << std::endl;
+    Menu::show_welcome(g_my_info.name);
 }
 
 // Searches RAM client DB for a user's binary uuid by their name
@@ -139,25 +129,25 @@ void MessageUClient::handle_registration()
 {
     // Check if my.info file already exists
     if (is_user_registered()) {
-        std::cerr << "Error: User already registered!\n";
+        Menu::show_error("User already registered!");
         return;
     }
 
     // Get username from user
-    std::cout << "Enter username: ";
+    Menu::show_prompt("Enter username: ");
     std::string username;
     std::getline(std::cin, username);
     if (username.empty()) {
-        std::cerr << "Error: Username cannot be empty.\n";
+        Menu::show_error("Username cannot be empty.");
         return;
     }
     if (username.length() > USERNAME_FIXED_SIZE) {
-        std::cerr << "Error: Username too long.\n";
+        Menu::show_error("Username too long.");
         return;
     }
 
     // Generate new RSA keys - asimmetric key pair
-    std::cout << "Generating RSA keys (this may take a moment)...\n";
+    Menu::show_info("Generating RSA keys (this may take a moment)...");
     g_my_info.keys = KeyManager::generate_rsa_keypair();
     std::string public_key_bin = KeyManager::get_public_key_binary(*g_my_info.keys);
     std::string private_key_b64 = KeyManager::encode_private_key_to_base64(*g_my_info.keys);
@@ -166,7 +156,7 @@ void MessageUClient::handle_registration()
     auto request = ProtocolHandler::build_registration_request(username, public_key_bin);
 
     // Send request to server
-    std::cout << "Sending registration request to server..." << std::endl;
+    Menu::show_info("Sending registration request to server...");
     connection_->send(request);
 
     // Read server response Header
@@ -188,7 +178,7 @@ void MessageUClient::handle_registration()
         // Convert binary UUID to ASCII Hex
         std::string uuid_hex = binary_to_hex_ascii(uuid_bin);
         
-        std::cout << "Registration successful! Your UUID is: " << uuid_hex << std::endl;
+        Menu::show_success("Registration successful! Your UUID is: " + uuid_hex);
 
         // Save users info to my.info file
         ClientStorage::save_client_data(username, uuid_hex, private_key_b64);
@@ -199,7 +189,7 @@ void MessageUClient::handle_registration()
     // Got error from server
     else {
         std::string error_msg(response_payload.begin(), response_payload.end());
-        std::cerr << "Server responded with an error: " << error_msg << std::endl;
+        Menu::show_error("Server responded with an error: " + error_msg);
     }
 }
 
@@ -208,7 +198,7 @@ void MessageUClient::handle_client_list()
 {
     // Check if user is registered
     if (!g_is_registered) {
-        std::cerr << "Error: Not registered.\n";
+        Menu::show_error("Not registered.");
         return;
     }
 
@@ -216,7 +206,7 @@ void MessageUClient::handle_client_list()
     auto request = ProtocolHandler::build_client_list_request(g_my_info.uuid_bin);
 
     // Send request to server
-    std::cout << "Requesting client list from server..." << std::endl;
+    Menu::show_info("Requesting client list from server...");
     connection_->send(request);
 
     // Read server response Header
@@ -233,13 +223,13 @@ void MessageUClient::handle_client_list()
 
     // Process response payload
     if (r_code == RESPONSE_CODE_DISPLAYING_CLIENTS_LIST) {
-
-        std::cout << "\n--- Registered Clients ---" << std::endl;
         g_client_db.clear(); // Clear the old list
         
         // Each entry is 16 (UUID) + 255 (Username) = 271 bytes
         const size_t entry_size = CLIENT_UUID_SIZE + USERNAME_FIXED_SIZE;
 
+        std::vector<std::pair<std::string, std::string>> clients;
+        
         // Loop through payload, one client at a time
         for (size_t i = 0; i < r_size; i += entry_size) {
             // Extract UUID and username from payload
@@ -249,15 +239,16 @@ void MessageUClient::handle_client_list()
             std::string name = name_raw.c_str(); // Trim nulls
             std::string uuid_hex = binary_to_hex_ascii(uuid_bin);
             
-            // Print to screen
-            std::cout << "Name: " << name << "\nUUID: " << uuid_hex << "\n---\n";
+            clients.push_back({name, uuid_hex});
             g_client_db[uuid_hex].username = name;
         }
+        
+        Menu::show_client_list(clients);
     } 
     // Got error from server
     else {
         std::string error_msg(r_payload.begin(), r_payload.end());
-        std::cerr << "Server responded with an error: " << error_msg << "\n";
+        Menu::show_error("Server responded with an error: " + error_msg);
     }
 }
 
@@ -265,10 +256,10 @@ void MessageUClient::handle_client_list()
 void MessageUClient::handle_request_public_key()
 {
     // Check if user is registered
-    if (!g_is_registered) { std::cerr << "Error: Not registered.\n"; return; }
+    if (!g_is_registered) { Menu::show_error("Not registered."); return; }
 
     // Get target username from user
-    std::cout << "Enter username to get public key: ";
+    Menu::show_prompt("Enter username to get public key: ");
     std::string target_username;
     std::getline(std::cin, target_username);
     if (target_username.empty()) return;
@@ -276,7 +267,7 @@ void MessageUClient::handle_request_public_key()
     // Find the targets UUID in local RAM DB (g_client_db)
     std::string target_uuid_bin = find_uuid_by_name(target_username);
     if (target_uuid_bin.empty()) {
-        std::cerr << "User not found in local list.\n";
+        Menu::show_error("User not found in local list.");
         return;
     }
 
@@ -284,7 +275,7 @@ void MessageUClient::handle_request_public_key()
     auto request = ProtocolHandler::build_public_key_request(g_my_info.uuid_bin, target_uuid_bin);
 
     // Send request to server
-    std::cout << "Requesting public key...\n";
+    Menu::show_info("Requesting public key...");
     connection_->send(request);
 
     // Read server response Header
@@ -307,12 +298,12 @@ void MessageUClient::handle_request_public_key()
         std::string hex = binary_to_hex_ascii(uuid_bin);
         
         g_client_db[hex].public_key = pub_key;
-        std::cout << "Public key received for " << g_client_db[hex].username << "\n";
+        Menu::show_success("Public key received for " + g_client_db[hex].username);
     } 
     // Got error from server
     else {
         std::string error_msg(response_payload.begin(), response_payload.end());
-        std::cerr << "Server responded with an error: " << error_msg << std::endl;
+        Menu::show_error("Server responded with an error: " + error_msg);
     }
 }
 
@@ -320,13 +311,13 @@ void MessageUClient::handle_request_public_key()
 void MessageUClient::handle_pull_messages()
 {
     // Check if user is registered
-    if (!g_is_registered) { std::cerr << "Error: Not registered.\n"; return; }
+    if (!g_is_registered) { Menu::show_error("Not registered."); return; }
 
     // Build request using ProtocolHandler
     auto request = ProtocolHandler::build_waiting_messages_request(g_my_info.uuid_bin);
 
     // Send request to server
-    std::cout << "Checking for messages...\n";
+    Menu::show_info("Checking for messages...");
     connection_->send(request);
 
     // Read server response Header
@@ -337,17 +328,17 @@ void MessageUClient::handle_pull_messages()
 
     // Check validity of response code
     if (r_code != RESPONSE_CODE_PULL_WAITING_MESSAGE) {
-        std::cout << "Error getting messages.\n";
+        Menu::show_error("Error getting messages.");
         return;
     }
 
     // Check if there are new messages
     if (total_payload_size == 0) {
-        std::cout << "No new messages.\n";
+        Menu::show_no_messages();
         return;
     }
 
-    std::cout << "\n--- Messages ---\n";
+    Menu::show_messages_header();
     
     // Read all payload at once
     std::vector<char> total_payload;
@@ -385,13 +376,13 @@ void MessageUClient::handle_pull_messages()
         std::string content_str(content.begin(), content.end());
 
         // Print message to console
-        std::cout << "From: " << find_name_by_uuid(from_uuid) << "\nContent:\n";
+        std::string from_name = find_name_by_uuid(from_uuid);
 
         switch (msg_type) {
 
             // Case 1 - Request Symmetric Key
             case MSG_TYPE_SYM_KEY_REQUEST:
-                std::cout << "Request for symmetric key\n";
+                Menu::show_message(from_name, "Request for symmetric key", true);
                 break;
             // Case 2 - Send Symmetric Key
             case MSG_TYPE_SYM_KEY_SEND:
@@ -400,8 +391,8 @@ void MessageUClient::handle_pull_messages()
                     std::string sym_key = Encryption::decrypt_rsa(*g_my_info.keys, content_str);
                     // Save symmetric key in RAM DB for this user
                     g_client_db[binary_to_hex_ascii(from_uuid)].symmetric_key = sym_key;
-                    std::cout << "Symmetric key received.\n";
-                } catch (...) { std::cout << "Error decrypting key.\n"; }
+                    Menu::show_success("Symmetric key received.");
+                } catch (...) { Menu::show_error("Error decrypting key."); }
                 break;
                  
             case MSG_TYPE_TEXT_MESSAGE: // Case 3 - send text Message
@@ -411,31 +402,30 @@ void MessageUClient::handle_pull_messages()
                 std::string sym_key = g_client_db[binary_to_hex_ascii(from_uuid)].symmetric_key;
 
                 // Make sure we have symmetric key
-                if (sym_key.empty()) std::cout << "Can't decrypt (no key)\n";
-                else {
+                if (sym_key.empty()) {
+                    Menu::show_no_key();
+                } else {
                     try {
                         // Decrypt the message content using the stored AES key
                         std::string decrypted = Encryption::decrypt_aes(sym_key, content_str.data(), content_str.size());
 
                         // Print text message to console
-                        if (msg_type == MSG_TYPE_TEXT_MESSAGE) std::cout << decrypted << "\n";
-
-                        // Save file to temp directory
-                        else {
+                        if (msg_type == MSG_TYPE_TEXT_MESSAGE) {
+                            Menu::show_message(from_name, decrypted, true);
+                        } else {
+                            // Save file to temp directory
                             std::filesystem::path temp_dir = std::filesystem::temp_directory_path();
                             std::filesystem::path file_path = temp_dir / ("msg_" + std::to_string(msg_id) + ".tmp");
                             // Write binary data to temp file
                             FileManager::write_file_binary(file_path.string(), decrypted);
-                            std::cout << "File saved in path: " << file_path << "\n";
+                            Menu::show_file_saved(file_path.string());
                         }
-                    } catch (...) { std::cout << "Decryption failed.\n"; }
+                    } catch (...) { Menu::show_decryption_failed(); }
                 }
                 break;
             }
         }
-        std::cout << "\n";
-        std::cout << "\n";
-        std::cout << "----<EOM>----\n\n";
+        std::cout << "\n\n----<EOM>----\n\n";
     }
 }
 
@@ -443,10 +433,10 @@ void MessageUClient::handle_pull_messages()
 void MessageUClient::handle_send_message_options(const std::string& menu_choice)
 {
     // Check if user is registered
-    if (!g_is_registered) { std::cerr << "Error: Not registered.\n"; return; }
+    if (!g_is_registered) { Menu::show_error("Not registered."); return; }
 
     // Get target username from user
-    std::cout << "Recipient username: ";
+    Menu::show_prompt("Recipient username: ");
     std::string target_username;
     std::getline(std::cin, target_username);
     if (target_username.empty()) return;
@@ -454,7 +444,7 @@ void MessageUClient::handle_send_message_options(const std::string& menu_choice)
     // Find the targets UUID in our local RAM DB (g_client_db)
     std::string target_uuid_bin = find_uuid_by_name(target_username);
     if (target_uuid_bin.empty()) {
-        std::cerr << "User not found in local client list!\n";
+        Menu::show_error("User not found in local client list!");
         return;
     }
     std::string target_hex = binary_to_hex_ascii(target_uuid_bin);
@@ -473,7 +463,7 @@ void MessageUClient::handle_send_message_options(const std::string& menu_choice)
 
         // Check if we have the targets public key
         if (g_client_db[target_hex].public_key.empty()) {
-            std::cerr << "Error: You don't have the public key for '" << target_username << "'.\n";
+            Menu::show_error("You don't have the public key for '" + target_username + "'.");
             return;
         }
 
@@ -485,34 +475,35 @@ void MessageUClient::handle_send_message_options(const std::string& menu_choice)
             msg_content = Encryption::encrypt_rsa(g_client_db[target_hex].public_key, key_bin);
             // Save this symmetric key in our RAM DB for this user
             g_client_db[target_hex].symmetric_key = key_bin;
-            std::cout << "Generated and sent a new symmetric key to " << target_username << ".\n";
+            Menu::show_success("Generated and sent a new symmetric key to " + target_username + ".");
         } catch (...) { return; }
     }
     // Logic for sending messages - 150 (Text) or 153 (File)
     else {
         // Check for symmetric key
         std::string key = g_client_db[target_hex].symmetric_key;
-        if (key.empty()) { std::cerr << "Error: You don't have a symmetric key for '" << target_username << "'.\n";
+        if (key.empty()) {
+            Menu::show_error("You don't have a symmetric key for '" + target_username + "'.");
             return;
-     }
+        }
         
         std::string data_to_encrypt;
 
         // Text Message (150)
         if (menu_choice == "150") {
             msg_type = MSG_TYPE_TEXT_MESSAGE;
-            std::cout << "Message: ";
+            Menu::show_prompt("Message: ");
             std::getline(std::cin, data_to_encrypt);
         }
         // File Transfer (153) 
         else {
             msg_type = MSG_TYPE_FILE;
-            std::cout << "File path: ";
+            Menu::show_prompt("File path: ");
             std::string file_path;
             std::getline(std::cin, file_path);
             file_path.erase(std::remove(file_path.begin(), file_path.end(), '\"'), file_path.end()); // Remove potential surrounding quotes
             try { data_to_encrypt = FileManager::read_file_binary(file_path); } 
-            catch (...) { std::cerr << "File error! \n"; return; }
+            catch (...) { Menu::show_error("File error!"); return; }
         }
 
         // Encrypt the data (text or file content)
@@ -526,7 +517,7 @@ void MessageUClient::handle_send_message_options(const std::string& menu_choice)
         g_my_info.uuid_bin, target_uuid_bin, msg_type, msg_content);
 
     // Send request to server
-    std::cout << "Sending...\n";
+    Menu::show_info("Sending...");
     connection_->send(request);
 
     // Read server response Header
@@ -543,12 +534,12 @@ void MessageUClient::handle_send_message_options(const std::string& menu_choice)
 
     // If everything went well and message was sent
     if (r_code == RESPONSE_CODE_SEND_TEXT_MESSAGE) {
-        std::cout << "Sent successfully.\n";
+        Menu::show_success("Sent successfully.");
     } 
     // Got error from server
     else {
         std::string error_msg(res_payload.begin(), res_payload.end());
-        std::cerr << "Server responded with an error: " << error_msg << std::endl;
+        Menu::show_error("Server responded with an error: " + error_msg);
     }
 }
 
@@ -557,15 +548,15 @@ void MessageUClient::handle_delete_user()
 {
     // 1. Check if registered
     if (!g_is_registered) {
-        std::cerr << "Error: Not registered. Nothing to delete.\n";
+        Menu::show_error("Not registered. Nothing to delete.");
         return;
     }
 
-    std::cout << "WARNING: This will delete your account and all data. Are you sure? (y/n): ";
+    Menu::show_prompt("WARNING: This will delete your account and all data. Are you sure? (y/n): ");
     std::string confirm;
     std::getline(std::cin, confirm);
     if (confirm != "y" && confirm != "Y") {
-        std::cout << "Operation cancelled.\n";
+        Menu::show_info("Operation cancelled.");
         return;
     }
 
@@ -573,11 +564,11 @@ void MessageUClient::handle_delete_user()
     auto request = ProtocolHandler::build_delete_user_request(g_my_info.uuid_bin);
 
     // 3. Send request
-    std::cout << "Sending delete request to server...\n";
+    Menu::show_info("Sending delete request to server...");
     try {
         connection_->send(request);
     } catch (const std::exception& e) {
-        std::cerr << "Network error: " << e.what() << "\n";
+        Menu::show_error("Network error: " + std::string(e.what()));
         return;
     }
 
@@ -586,7 +577,7 @@ void MessageUClient::handle_delete_user()
     try {
         response_header = connection_->receive(RESPONSE_HEADER_SIZE);
     } catch (...) {
-        std::cerr << "Error reading server response.\n";
+        Menu::show_error("Error reading server response.");
         return;
     }
 
@@ -601,11 +592,11 @@ void MessageUClient::handle_delete_user()
 
     // 5. Process result
     if (r_code == RESPONSE_CODE_DELETE_USER_SUCCESS) {
-        std::cout << "Server deleted user successfully.\n";
+        Menu::show_success("Server deleted user successfully.");
         
         // Delete local file
         if (ClientStorage::delete_client_data()) {
-            std::cout << "Deleted local file: " << MY_INFO_FILE << "\n";
+            Menu::show_success("Deleted local file: " + std::string(MY_INFO_FILE));
         }
 
         // Reset RAM state
@@ -615,11 +606,11 @@ void MessageUClient::handle_delete_user()
         g_my_info.uuid_bin = "";
         g_my_info.keys.reset(); // Free RSA keys
         
-        std::cout << "User deleted successfully from client memory.\n";
+        Menu::show_success("User deleted successfully from client memory.");
     } 
     else {
         std::string error_msg(r_payload.begin(), r_payload.end());
-        std::cerr << "Server failed to delete user: " << error_msg << "\n";
+        Menu::show_error("Server failed to delete user: " + error_msg);
     }
 }
 

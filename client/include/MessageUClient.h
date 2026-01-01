@@ -4,10 +4,10 @@
 #include <vector>
 #include <map>
 #include <memory>
-#include <boost/asio.hpp>
 #include "RSAWrapper.h"
 
-using boost::asio::ip::tcp;
+// Forward declarations
+class Connection;
 
 // Client-side RAM Storage structure
 struct ClientInfo {
@@ -40,10 +40,8 @@ public:
     void handle_delete_user();             // 154
 
 private:
-    // Network members to set up Boost.Asio connection
-    boost::asio::io_context p_io_context;
-    tcp::socket p_socket;
-    tcp::resolver p_resolver;
+    // Network connection
+    std::unique_ptr<Connection> connection_;
 
     // Client state structure (replaces g_my_info)
     struct MyInfo {

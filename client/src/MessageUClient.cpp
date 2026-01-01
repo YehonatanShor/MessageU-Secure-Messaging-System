@@ -2,6 +2,8 @@
 #include "Base64Wrapper.h"
 #include "AESWrapper.h"
 #include "protocol/constants.h"
+#include "network/connection.h"
+#include "network/protocol_handler.h"
 #include <iostream>
 #include <fstream>
 #include <filesystem>
@@ -9,10 +11,6 @@
 #include <cryptopp/hex.h>
 #include <cryptopp/filters.h>
 #include <cryptopp/files.h>
-
-#if defined(_WIN32)
-#include <winsock2.h> // For htonl, ntohl
-#endif
 
 using namespace Protocol;  // Import protocol constants into current scope
 
@@ -48,7 +46,7 @@ std::string read_file_content(const std::string& filepath)
 
     // Implement functions of MessageUClient class
 
-MessageUClient::MessageUClient() : p_socket(p_io_context), p_resolver(p_io_context) {
+MessageUClient::MessageUClient() : connection_(std::make_unique<Connection>()) {
     // Try to load info on startup
     load_my_info();
 }
@@ -57,13 +55,13 @@ MessageUClient::~MessageUClient() {
     close();
 }
 
-// Set up Boost.Asio connection
+// Set up connection
 void MessageUClient::connect() {
     try {
         // Load server info from file
         auto server_info = load_server_info();
         std::cout << "Connecting to " << server_info.first << ":" << server_info.second << "..." << std::endl;
-        boost::asio::connect(p_socket, p_resolver.resolve(server_info.first, server_info.second));
+        connection_->connect(server_info.first, server_info.second);
         std::cout << "Connected successfully.\n";
     } catch (const std::exception& e) {
         throw std::runtime_error(std::string("Connection failed: ") + e.what());
@@ -72,7 +70,9 @@ void MessageUClient::connect() {
 
 // Close socket connection
 void MessageUClient::close() {
-    if (p_socket.is_open()) p_socket.close();
+    if (connection_) {
+        connection_->close();
+    }
 }
 
 // Display menu to user
@@ -211,67 +211,29 @@ void MessageUClient::handle_registration()
     std::string public_key_bin = g_my_info.keys->getPublicKey();
     std::string private_key_b64 = Base64Wrapper::encode(g_my_info.keys->getPrivateKey());
 
-    // Build complete request (Header + Payload) 
-    std::vector<char> complete_request; // Allocated on heap for dynamic size
-    uint32_t request_payload_size = USERNAME_FIXED_SIZE + PUBLIC_KEY_FIXED_SIZE;
-    complete_request.reserve(REQUEST_HEADER_SIZE + request_payload_size); // Pre-allocate memory
-
-    // Build header parts
-    uint8_t client_version = CLIENT_VERSION;
-    uint16_t request_code = htons(REQUEST_CODE_REGISTER);
-    uint32_t reg_payload_size = htonl(request_payload_size);
-
-    // Add header parts to complete_request
-    complete_request.insert(complete_request.end(), CLIENT_UUID_SIZE, 0); // Add 16 null bytes as a placeholder for the ClientID
-    complete_request.insert(complete_request.end(), (char*)&client_version, (char*)&client_version + sizeof(client_version));
-    complete_request.insert(complete_request.end(), (char*)&request_code, (char*)&request_code + sizeof(request_code));
-    complete_request.insert(complete_request.end(), (char*)&reg_payload_size, (char*)&reg_payload_size + sizeof(reg_payload_size));
-    
-    // Build payload parts
-    char username_payload[USERNAME_FIXED_SIZE] = {0}; // Allocate on stack for efficiency, fills with 255 null bytes
-    std::memcpy(username_payload, username.c_str(), username.length());
-
-    char public_key_payload[PUBLIC_KEY_FIXED_SIZE] = {0}; // Allocate on stack for efficiency, fills with 160 null bytes
-    size_t key_copy_size = std::min((size_t)PUBLIC_KEY_FIXED_SIZE, public_key_bin.length());
-    std::memcpy(public_key_payload, public_key_bin.c_str(), key_copy_size);
-
-    // Add payload parts to complete_request
-    complete_request.insert(complete_request.end(), username_payload, username_payload + USERNAME_FIXED_SIZE);
-    complete_request.insert(complete_request.end(), public_key_payload, public_key_payload + PUBLIC_KEY_FIXED_SIZE);
+    // Build request using ProtocolHandler
+    auto request = ProtocolHandler::build_registration_request(username, public_key_bin);
 
     // Send request to server
     std::cout << "Sending registration request to server..." << std::endl;
-    boost::asio::write(p_socket, boost::asio::buffer(complete_request));
+    connection_->send(request);
 
     // Read server response Header
-    char response_header[RESPONSE_HEADER_SIZE];
-    boost::asio::read(p_socket, boost::asio::buffer(response_header, RESPONSE_HEADER_SIZE));
+    auto response_header = connection_->receive(RESPONSE_HEADER_SIZE);
 
-    // Extract response code and payload size from header
-    uint16_t response_code;
-    uint32_t response_size;
-    std::memcpy(&response_code, response_header + SERVER_VERSION_SIZE, RESPONSE_CODE_SIZE);
-    std::memcpy(&response_size, response_header + SERVER_VERSION_SIZE + RESPONSE_CODE_SIZE, RESPONSE_PAYLOAD_SIZE);
-    response_code = ntohs(response_code);
-    response_size = ntohl(response_size);
+    // Parse response header
+    auto [response_code, response_size] = ProtocolHandler::parse_response_header(response_header);
 
-    // 8. Read server response payload
-    std::vector<char> response_payload(response_size);
+    // Read server response payload
+    std::vector<char> response_payload;
     if (response_size > 0) {
-        boost::asio::read(p_socket, boost::asio::buffer(response_payload));
+        response_payload = connection_->receive(response_size);
     }
 
     // Process response
     if (response_code == RESPONSE_CODE_REGISTER_SUCCESS) {
-
-        // Validate payload size
-        if (response_size != CLIENT_UUID_SIZE) {
-            std::cerr << "Error: Invalid UUID size.\n";
-            return;
-        }
-
-        // Extract UUID from payload
-        std::string uuid_bin(response_payload.begin(), response_payload.end());
+        // Parse registration response
+        std::string uuid_bin = ProtocolHandler::parse_registration_response(response_payload);
         // Convert binary UUID to ASCII Hex
         std::string uuid_hex = binary_to_hex_ascii(uuid_bin);
         
@@ -301,38 +263,24 @@ void MessageUClient::handle_client_list()
         return;
     }
 
-    // Build request header (23 bytes), no payload
-    char request_header[REQUEST_HEADER_SIZE];
-
-    // Build header parts
-    uint16_t request_code = htons(REQUEST_CODE_CLIENTS_LIST);
-    uint32_t request_payload_size = htonl(0);
-
-    //Add header parts to request_header
-    std::memcpy(request_header, g_my_info.uuid_bin.data(), CLIENT_UUID_SIZE); // insert UUID - 16 bytes
-    request_header[CLIENT_UUID_SIZE] = CLIENT_VERSION; // insert clients Version - 1 byte
-    std::memcpy(request_header + CLIENT_UUID_SIZE + CLIENT_VERSION_SIZE, &request_code, sizeof(request_code)); // insert Code - 2 bytes
-    std::memcpy(request_header + CLIENT_UUID_SIZE + CLIENT_VERSION_SIZE + REQUEST_CODE_SIZE, &request_payload_size, sizeof(request_payload_size)); // insert Payload Size - 4 bytes
+    // Build request using ProtocolHandler
+    auto request = ProtocolHandler::build_client_list_request(g_my_info.uuid_bin);
 
     // Send request to server
     std::cout << "Requesting client list from server..." << std::endl;
-    boost::asio::write(p_socket, boost::asio::buffer(request_header, REQUEST_HEADER_SIZE));
+    connection_->send(request);
 
     // Read server response Header
-    char response_header[RESPONSE_HEADER_SIZE];
-    boost::asio::read(p_socket, boost::asio::buffer(response_header, RESPONSE_HEADER_SIZE));
+    auto response_header = connection_->receive(RESPONSE_HEADER_SIZE);
 
-    // Extract response hcode and payload size from header
-    uint16_t r_code;
-    uint32_t r_size;
-    std::memcpy(&r_code, response_header + SERVER_VERSION_SIZE, RESPONSE_CODE_SIZE);
-    std::memcpy(&r_size, response_header + SERVER_VERSION_SIZE + RESPONSE_CODE_SIZE, RESPONSE_PAYLOAD_SIZE);
-    r_code = ntohs(r_code);
-    r_size = ntohl(r_size);
+    // Parse response header
+    auto [r_code, r_size] = ProtocolHandler::parse_response_header(response_header);
     
     // Read response payload
-    std::vector<char> r_payload(r_size);
-    if (r_size > 0) boost::asio::read(p_socket, boost::asio::buffer(r_payload));
+    std::vector<char> r_payload;
+    if (r_size > 0) {
+        r_payload = connection_->receive(r_size);
+    }
 
     // Process response payload
     if (r_code == RESPONSE_CODE_DISPLAYING_CLIENTS_LIST) {
@@ -383,43 +331,24 @@ void MessageUClient::handle_request_public_key()
         return;
     }
 
-    // Build complete request (Header + Payload)
-    std::vector<char> request;
-    request.reserve(REQUEST_HEADER_SIZE + target_uuid_bin.length());
-    
-    // Build header
-    uint8_t client_version = CLIENT_VERSION;
-    uint16_t request_code = htons(REQUEST_CODE_PUBLIC_KEY);
-    uint32_t req_payload_size = htonl(target_uuid_bin.length()); // Payload is the 16-byte UUID
-
-    // Add header parts
-    request.insert(request.end(), g_my_info.uuid_bin.begin(), g_my_info.uuid_bin.end()); // Our UUID
-    request.insert(request.end(), (char*)&client_version, (char*)&client_version + sizeof(client_version));
-    request.insert(request.end(), (char*)&request_code, (char*)&request_code + sizeof(request_code));
-    request.insert(request.end(), (char*)&req_payload_size, (char*)&req_payload_size + sizeof(req_payload_size));
-    
-    // Add payload (targets UUID)
-    request.insert(request.end(), target_uuid_bin.begin(), target_uuid_bin.end());
+    // Build request using ProtocolHandler
+    auto request = ProtocolHandler::build_public_key_request(g_my_info.uuid_bin, target_uuid_bin);
 
     // Send request to server
     std::cout << "Requesting public key...\n";
-    boost::asio::write(p_socket, boost::asio::buffer(request));
+    connection_->send(request);
 
     // Read server response Header
-    char response_header[RESPONSE_HEADER_SIZE];
-    boost::asio::read(p_socket, boost::asio::buffer(response_header, RESPONSE_HEADER_SIZE));
+    auto response_header = connection_->receive(RESPONSE_HEADER_SIZE);
 
-    // Extract response code and payload size from header
-    uint16_t r_code;
-    uint32_t r_size;
-    std::memcpy(&r_code, response_header + SERVER_VERSION_SIZE, RESPONSE_CODE_SIZE);
-    std::memcpy(&r_size, response_header + SERVER_VERSION_SIZE + RESPONSE_CODE_SIZE, RESPONSE_PAYLOAD_SIZE);
-    r_code = ntohs(r_code);
-    r_size = ntohl(r_size);
+    // Parse response header
+    auto [r_code, r_size] = ProtocolHandler::parse_response_header(response_header);
 
     // Read server response payload
-    std::vector<char> response_payload(r_size);
-    if (r_size > 0) boost::asio::read(p_socket, boost::asio::buffer(response_payload));
+    std::vector<char> response_payload;
+    if (r_size > 0) {
+        response_payload = connection_->receive(r_size);
+    }
 
     // Process response payload
     if (r_code == RESPONSE_CODE_SEND_PUBLIC_KEY) {
@@ -444,34 +373,18 @@ void MessageUClient::handle_pull_messages()
     // Check if user is registered
     if (!g_is_registered) { std::cerr << "Error: Not registered.\n"; return; }
 
-    // Build request header (21 bytes), no payload
-    char request_header[REQUEST_HEADER_SIZE];
-
-    // Build header parts
-    uint16_t client_code = htons(REQUEST_CODE_WAITING_MESSAGES);
-    uint32_t request_payload_size = htonl(0);
-
-    // Add header parts to request_header
-    std::memcpy(request_header, g_my_info.uuid_bin.data(), CLIENT_UUID_SIZE); // insert ClientID - 16 bytes
-    request_header[CLIENT_UUID_SIZE] = CLIENT_VERSION; // insert client Version - 1 byte
-    std::memcpy(request_header + CLIENT_UUID_SIZE + CLIENT_VERSION_SIZE, &client_code, sizeof(client_code)); // insert request Code - 2 bytes
-    std::memcpy(request_header + CLIENT_UUID_SIZE + CLIENT_VERSION_SIZE + REQUEST_CODE_SIZE, &request_payload_size, sizeof(request_payload_size)); // insert Payload Size (0) - 4 bytes
+    // Build request using ProtocolHandler
+    auto request = ProtocolHandler::build_waiting_messages_request(g_my_info.uuid_bin);
 
     // Send request to server
     std::cout << "Checking for messages...\n";
-    boost::asio::write(p_socket, boost::asio::buffer(request_header, REQUEST_HEADER_SIZE));
+    connection_->send(request);
 
     // Read server response Header
-    char response_header[RESPONSE_HEADER_SIZE];
-    boost::asio::read(p_socket, boost::asio::buffer(response_header, RESPONSE_HEADER_SIZE));
+    auto response_header = connection_->receive(RESPONSE_HEADER_SIZE);
 
-    // Extract response code and payload size from header
-    uint16_t r_code;
-    uint32_t total_payload_size;
-    std::memcpy(&r_code, response_header + SERVER_VERSION_SIZE, RESPONSE_CODE_SIZE);
-    std::memcpy(&total_payload_size, response_header + SERVER_VERSION_SIZE + RESPONSE_CODE_SIZE, RESPONSE_PAYLOAD_SIZE);
-    r_code = ntohs(r_code);
-    total_payload_size = ntohl(total_payload_size);
+    // Parse response header
+    auto [r_code, total_payload_size] = ProtocolHandler::parse_response_header(response_header);
 
     // Check validity of response code
     if (r_code != RESPONSE_CODE_PULL_WAITING_MESSAGE) {
@@ -487,26 +400,38 @@ void MessageUClient::handle_pull_messages()
 
     std::cout << "\n--- Messages ---\n";
     
+    // Read all payload at once
+    std::vector<char> total_payload;
+    if (total_payload_size > 0) {
+        total_payload = connection_->receive(total_payload_size);
+    }
+    
     // Keep track of how many bytes we've processed from the payload
     size_t processed = 0; 
 
     // Loop until we have processed all the waiting messages one by one
     while (processed < total_payload_size) {
         
-        // Read header for *one* message (25 bytes: FromUUID(16) + MsgID(4) + Type(1) + ContentSize(4) )
-        char msg_head[CLIENT_UUID_SIZE + RESPONSE_MSG_ID_SIZE + RESPONSE_MSG_TYPE_SIZE + RESPONSE_MSG_SIZE];
-        boost::asio::read(p_socket, boost::asio::buffer(msg_head, sizeof(msg_head)));
-        processed += sizeof(msg_head);
+        // Extract header for *one* message (25 bytes: FromUUID(16) + MsgID(4) + Type(1) + ContentSize(4) )
+        size_t msg_header_size = CLIENT_UUID_SIZE + RESPONSE_MSG_ID_SIZE + RESPONSE_MSG_TYPE_SIZE + RESPONSE_MSG_SIZE;
+        if (processed + msg_header_size > total_payload_size) {
+            break; // Not enough data
+        }
+        
+        std::vector<char> msg_head(total_payload.begin() + processed, total_payload.begin() + processed + msg_header_size);
+        processed += msg_header_size;
 
         // Extract message header parts 
-        std::string from_uuid(msg_head, CLIENT_UUID_SIZE);
-        uint32_t msg_id = ntohl(*reinterpret_cast<uint32_t*>(msg_head + CLIENT_UUID_SIZE));
+        std::string from_uuid(msg_head.data(), CLIENT_UUID_SIZE);
+        uint32_t msg_id = ntohl(*reinterpret_cast<uint32_t*>(msg_head.data() + CLIENT_UUID_SIZE));
         uint8_t msg_type = msg_head[CLIENT_UUID_SIZE + RESPONSE_MSG_ID_SIZE];
-        uint32_t content_size = ntohl(*reinterpret_cast<uint32_t*>(msg_head + CLIENT_UUID_SIZE + RESPONSE_MSG_ID_SIZE + RESPONSE_MSG_TYPE_SIZE));
+        uint32_t content_size = ntohl(*reinterpret_cast<uint32_t*>(msg_head.data() + CLIENT_UUID_SIZE + RESPONSE_MSG_ID_SIZE + RESPONSE_MSG_TYPE_SIZE));
 
-        // Read message content
-        std::vector<char> content(content_size);
-        if (content_size > 0) boost::asio::read(p_socket, boost::asio::buffer(content));
+        // Extract message content
+        if (processed + content_size > total_payload_size) {
+            break; // Not enough data
+        }
+        std::vector<char> content(total_payload.begin() + processed, total_payload.begin() + processed + content_size);
         processed += content_size;
         std::string content_str(content.begin(), content.end());
 
@@ -652,52 +577,25 @@ void MessageUClient::handle_send_message_options(const std::string& menu_choice)
         } catch (...) { return; }
     }
 
-    // Build complete payload 
-    std::vector<char> msg_payload;
-    uint32_t msg_size = htonl(msg_content.length());
-    
-    // Add payload parts to msg_payload
-    msg_payload.insert(msg_payload.end(), target_uuid_bin.begin(), target_uuid_bin.end()); // 16 bytes Target UUID
-    msg_payload.push_back(msg_type); // 1 byte Message Type
-    msg_payload.insert(msg_payload.end(), (char*)&msg_size, (char*)&msg_size + sizeof(msg_size)); // 4 bytes Content Size
-    msg_payload.insert(msg_payload.end(), msg_content.begin(), msg_content.end()); // N bytes Content
-
-    // Build complete request (Header + Payload)
-    std::vector<char> request;
-
-    // Build header
-    uint8_t client_version = CLIENT_VERSION;
-    uint16_t request_code = htons(REQUEST_CODE_SEND_MESSAGE);
-    uint32_t request_payload_size = htonl(msg_payload.size());
-
-    // Add header parts to request
-    request.insert(request.end(), g_my_info.uuid_bin.begin(), g_my_info.uuid_bin.end()); // Our UUID
-    request.insert(request.end(), (char*)&client_version, (char*)&client_version + sizeof(client_version));
-    request.insert(request.end(), (char*)&request_code, (char*)&request_code + sizeof(request_code));
-    request.insert(request.end(), (char*)&request_payload_size, (char*)&request_payload_size + sizeof(request_payload_size));
-    
-    // Add complete payload to request
-    request.insert(request.end(), msg_payload.begin(), msg_payload.end());
+    // Build request using ProtocolHandler
+    auto request = ProtocolHandler::build_send_message_request(
+        g_my_info.uuid_bin, target_uuid_bin, msg_type, msg_content);
 
     // Send request to server
     std::cout << "Sending...\n";
-    boost::asio::write(p_socket, boost::asio::buffer(request));
+    connection_->send(request);
 
     // Read server response Header
-    char res_head[RESPONSE_HEADER_SIZE];
-    boost::asio::read(p_socket, boost::asio::buffer(res_head, RESPONSE_HEADER_SIZE));
+    auto res_head = connection_->receive(RESPONSE_HEADER_SIZE);
     
-    // Extract response code and payload size from header
-    uint16_t r_code;
-    uint32_t r_size;
-    std::memcpy(&r_code, res_head + SERVER_VERSION_SIZE, 2);
-    std::memcpy(&r_size, res_head + SERVER_VERSION_SIZE + 2, 4);
-    r_code = ntohs(r_code);
-    r_size = ntohl(r_size);
+    // Parse response header
+    auto [r_code, r_size] = ProtocolHandler::parse_response_header(res_head);
 
-    // Read and server response payload
-    std::vector<char> res_payload(r_size);
-    if (r_size > 0) boost::asio::read(p_socket, boost::asio::buffer(res_payload));
+    // Read server response payload
+    std::vector<char> res_payload;
+    if (r_size > 0) {
+        res_payload = connection_->receive(r_size);
+    }
 
     // If everything went well and message was sent
     if (r_code == RESPONSE_CODE_SEND_TEXT_MESSAGE) {
@@ -727,47 +625,34 @@ void MessageUClient::handle_delete_user()
         return;
     }
 
-    // 2. Build Request Header (Only header, no payload needed)
-    char request_header[REQUEST_HEADER_SIZE];
-    uint16_t request_code = htons(REQUEST_CODE_DELETE_USER);
-    uint32_t request_payload_size = htonl(0); // No payload
-
-    // Fill header
-    std::memcpy(request_header, g_my_info.uuid_bin.data(), CLIENT_UUID_SIZE);
-    request_header[CLIENT_UUID_SIZE] = CLIENT_VERSION;
-    std::memcpy(request_header + CLIENT_UUID_SIZE + CLIENT_VERSION_SIZE, &request_code, sizeof(request_code));
-    std::memcpy(request_header + CLIENT_UUID_SIZE + CLIENT_VERSION_SIZE + REQUEST_CODE_SIZE, &request_payload_size, sizeof(request_payload_size));
+    // 2. Build request using ProtocolHandler
+    auto request = ProtocolHandler::build_delete_user_request(g_my_info.uuid_bin);
 
     // 3. Send request
     std::cout << "Sending delete request to server...\n";
     try {
-        boost::asio::write(p_socket, boost::asio::buffer(request_header, REQUEST_HEADER_SIZE));
+        connection_->send(request);
     } catch (const std::exception& e) {
         std::cerr << "Network error: " << e.what() << "\n";
         return;
     }
 
     // 4. Read Response Header
-    char response_header[RESPONSE_HEADER_SIZE];
+    std::vector<char> response_header;
     try {
-        boost::asio::read(p_socket, boost::asio::buffer(response_header, RESPONSE_HEADER_SIZE));
+        response_header = connection_->receive(RESPONSE_HEADER_SIZE);
     } catch (...) {
         std::cerr << "Error reading server response.\n";
         return;
     }
 
     // Parse header
-    uint16_t r_code;
-    uint32_t r_size;
-    std::memcpy(&r_code, response_header + SERVER_VERSION_SIZE, RESPONSE_CODE_SIZE);
-    std::memcpy(&r_size, response_header + SERVER_VERSION_SIZE + RESPONSE_CODE_SIZE, RESPONSE_PAYLOAD_SIZE);
-    r_code = ntohs(r_code);
-    r_size = ntohl(r_size);
+    auto [r_code, r_size] = ProtocolHandler::parse_response_header(response_header);
 
     // Read payload if exists (usually error message)
-    std::vector<char> r_payload(r_size);
+    std::vector<char> r_payload;
     if (r_size > 0) {
-        boost::asio::read(p_socket, boost::asio::buffer(r_payload));
+        r_payload = connection_->receive(r_size);
     }
 
     // 5. Process result

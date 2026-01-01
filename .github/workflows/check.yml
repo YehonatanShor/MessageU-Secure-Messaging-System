@@ -100,12 +100,30 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Verify server structure before build
+        run: |
+          echo "Checking server structure..."
+          ls -la server/
+          echo "Checking for modular structure..."
+          test -d server/config && echo "✓ config/ exists" || echo "✗ config/ missing"
+          test -d server/database && echo "✓ database/ exists" || echo "✗ database/ missing"
+          test -d server/network && echo "✓ network/ exists" || echo "✗ network/ missing"
+          test -d server/handlers && echo "✓ handlers/ exists" || echo "✗ handlers/ missing"
+          test -d server/utils && echo "✓ utils/ exists" || echo "✗ utils/ missing"
+          echo "Checking server.py size (should be ~70 lines, not 600+)..."
+          wc -l server/server.py
+
       - name: Build and push
         uses: docker/build-push-action@v4
         with:
           context: .
           push: true
-          # Replace 'yehonatanshor' with your actual Docker Hub username
+          pull: true # Always pull base image to ensure freshness
           tags: |
             yehonatanshor/messageu-server:latest
             yehonatanshor/messageu-server:${{ github.ref_name }}
+          build-args: |
+            BUILD_DATE=${{ github.event.head_commit.timestamp || github.run_started_at }}
+            GIT_SHA=${{ github.sha }}
+          # Build without cache for tags to ensure fresh build with latest code
+          no-cache: true

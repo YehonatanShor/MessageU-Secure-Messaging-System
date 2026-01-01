@@ -52,3 +52,4 @@ bool Connection::is_connected() const {
     return socket_ && socket_->is_open();
 }
 
+

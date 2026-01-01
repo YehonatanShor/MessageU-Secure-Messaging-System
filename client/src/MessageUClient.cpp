@@ -4,8 +4,9 @@
 #include "network/protocol_handler.h"
 #include "crypto/key_manager.h"
 #include "crypto/encryption.h"
+#include "storage/file_manager.h"
+#include "storage/client_storage.h"
 #include <iostream>
-#include <fstream>
 #include <filesystem>
 #include <algorithm>
 #include <cryptopp/hex.h>
@@ -33,17 +34,6 @@ std::string hex_ascii_to_binary(const std::string& hex)
     return bin;
 }
 
-// Reads an entire file into a string (binary safe)
-std::string read_file_content(const std::string& filepath)
-{
-    std::ifstream file(filepath, std::ios::binary); // Open in binary
-    if (!file) {
-        throw std::runtime_error("Cannot open file: " + filepath);
-    }
-    // Read the whole file into a string
-    return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-}
-
     // Implement functions of MessageUClient class
 
 MessageUClient::MessageUClient() : connection_(std::make_unique<Connection>()) {
@@ -59,9 +49,9 @@ MessageUClient::~MessageUClient() {
 void MessageUClient::connect() {
     try {
         // Load server info from file
-        auto server_info = load_server_info();
-        std::cout << "Connecting to " << server_info.first << ":" << server_info.second << "..." << std::endl;
-        connection_->connect(server_info.first, server_info.second);
+        auto server_info = ClientStorage::load_server_info();
+        std::cout << "Connecting to " << server_info.host << ":" << server_info.port << "..." << std::endl;
+        connection_->connect(server_info.host, server_info.port);
         std::cout << "Connected successfully.\n";
     } catch (const std::exception& e) {
         throw std::runtime_error(std::string("Connection failed: ") + e.what());
@@ -95,63 +85,24 @@ void MessageUClient::show_menu()
 // Checks if the my.info file exists
 bool MessageUClient::is_user_registered()
 {
-    std::ifstream f(MY_INFO_FILE);
-    return f.good();
+    return ClientStorage::is_client_registered();
 }
 
 // Attempts to load client info from my.info file into RAM
 void MessageUClient::load_my_info() {
-    std::ifstream f(MY_INFO_FILE);
-    if (!f.good()) return; // Not registered
-
-    std::string name, uuid_hex, private_key_b64, line;
-    std::getline(f, name);
-    std::getline(f, uuid_hex);
-
-    // Read the rest of the file (potentially multi-line) for the Base64 key
-    while (std::getline(f, line)) {
-        private_key_b64 += line;
-    }
-    f.close();
-
-    // Check if any fields are empty
-    if (name.empty() || uuid_hex.empty() || private_key_b64.empty()) {
-        std::cerr << "Error: " << MY_INFO_FILE << " is corrupt or incomplete.\n";
-        return;
+    auto client_data = ClientStorage::load_client_data();
+    if (!client_data) {
+        return; // Not registered
     }
 
     // Load info into RAM
-    g_my_info.name = name;
-    g_my_info.uuid_hex = uuid_hex;
-    g_my_info.uuid_bin = hex_ascii_to_binary(uuid_hex);
-    // Using unique_ptr handles memory automatically
-    g_my_info.keys = KeyManager::load_private_key_from_base64(private_key_b64);
+    g_my_info.name = client_data->username;
+    g_my_info.uuid_hex = client_data->uuid_hex;
+    g_my_info.uuid_bin = hex_ascii_to_binary(client_data->uuid_hex);
+    g_my_info.keys = std::move(client_data->private_key);
     
     g_is_registered = true;
     std::cout << "Welcome, " << g_my_info.name << "!" << std::endl;
-}
-
-// Loads server host and port from server.info file
-std::pair<std::string, std::string> MessageUClient::load_server_info() {
-    // check if file exists and open it
-    std::ifstream f(SERVER_INFO_FILE);
-    if (!f.is_open()) {
-        throw std::runtime_error("Error: Could not open " + SERVER_INFO_FILE);
-    }
-
-    // read first line
-    std::string line;
-    if (std::getline(f, line)) {
-        size_t colon_pos = line.find(':'); // Find the colon separator
-        
-        // check if the content of file is valid
-        if (colon_pos == std::string::npos || colon_pos == 0 || colon_pos == line.length() - 1) {
-            throw std::runtime_error("Invalid format in " + SERVER_INFO_FILE);
-        }
-        // Returns host and port
-        return { line.substr(0, colon_pos), line.substr(colon_pos + 1) }; 
-    }
-    throw std::runtime_error(SERVER_INFO_FILE + " is empty.");
 }
 
 // Searches RAM client DB for a user's binary uuid by their name
@@ -240,9 +191,7 @@ void MessageUClient::handle_registration()
         std::cout << "Registration successful! Your UUID is: " << uuid_hex << std::endl;
 
         // Save users info to my.info file
-        std::ofstream outfile(MY_INFO_FILE);
-        outfile << username << "\n" << uuid_hex << "\n" << private_key_b64;
-        outfile.close();
+        ClientStorage::save_client_data(username, uuid_hex, private_key_b64);
 
         // Load info into RAM for current session
         load_my_info();
@@ -473,11 +422,11 @@ void MessageUClient::handle_pull_messages()
 
                         // Save file to temp directory
                         else {
-                            auto path = std::filesystem::temp_directory_path() / ("msg_" + std::to_string(msg_id) + ".tmp");
+                            std::filesystem::path temp_dir = std::filesystem::temp_directory_path();
+                            std::filesystem::path file_path = temp_dir / ("msg_" + std::to_string(msg_id) + ".tmp");
                             // Write binary data to temp file
-                            std::ofstream f(path, std::ios::binary);
-                            f.write(decrypted.data(), decrypted.size());
-                            std::cout << "File saved in path: " << path << "\n";
+                            FileManager::write_file_binary(file_path.string(), decrypted);
+                            std::cout << "File saved in path: " << file_path << "\n";
                         }
                     } catch (...) { std::cout << "Decryption failed.\n"; }
                 }
@@ -562,7 +511,7 @@ void MessageUClient::handle_send_message_options(const std::string& menu_choice)
             std::string file_path;
             std::getline(std::cin, file_path);
             file_path.erase(std::remove(file_path.begin(), file_path.end(), '\"'), file_path.end()); // Remove potential surrounding quotes
-            try { data_to_encrypt = read_file_content(file_path); } 
+            try { data_to_encrypt = FileManager::read_file_binary(file_path); } 
             catch (...) { std::cerr << "File error! \n"; return; }
         }
 
@@ -655,8 +604,7 @@ void MessageUClient::handle_delete_user()
         std::cout << "Server deleted user successfully.\n";
         
         // Delete local file
-        if (std::filesystem::exists(MY_INFO_FILE)) {
-            std::filesystem::remove(MY_INFO_FILE);
+        if (ClientStorage::delete_client_data()) {
             std::cout << "Deleted local file: " << MY_INFO_FILE << "\n";
         }
 

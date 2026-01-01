@@ -70,3 +70,4 @@ def send_registration_success(conn, client_uuid_bytes):
     except Exception as e:
         print(f"Error sending success response: {e}")
 
+

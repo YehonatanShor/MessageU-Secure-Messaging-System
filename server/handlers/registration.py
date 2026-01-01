@@ -50,3 +50,4 @@ def handle_registration(conn, payload, db):
         print(f"Error processing registration: {e}")
         send_error_response(conn, "Registration failed.")
 
+

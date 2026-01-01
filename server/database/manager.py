@@ -274,3 +274,4 @@ class DatabaseManager:
             print(f"DB Error (delete_client): {e}")
             return False  # Indicate failure
 
+

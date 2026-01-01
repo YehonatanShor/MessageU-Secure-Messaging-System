@@ -47,3 +47,4 @@ def handle_client_list(conn, client_id_bytes, db):
         constants.RESPONSE_CODE_DISPLAYING_CLIENTS_LIST,
         b"".join(payload_chunks))
 
+

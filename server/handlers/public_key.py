@@ -49,3 +49,4 @@ def handle_public_key_request(conn, client_id_bytes, payload, db):
     else:
         send_error_response(conn, "Client not found.")
 
+

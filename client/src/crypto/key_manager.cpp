@@ -24,3 +24,4 @@ std::string KeyManager::encode_private_key_to_base64(
     return Base64Wrapper::encode(private_key.getPrivateKey());
 }
 
+

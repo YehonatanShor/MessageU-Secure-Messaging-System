@@ -62,6 +62,4 @@ private:
     // Internal helpers
     bool is_user_registered();
     void load_my_info();
-    std::string find_uuid_by_name(const std::string& name);
-    std::string find_name_by_uuid(const std::string& uuid_bin);
 };

@@ -100,33 +100,6 @@ void MessageUClient::load_my_info() {
     Menu::show_welcome(g_my_info.name);
 }
 
-// Searches RAM client DB for a user's binary uuid by their name
-std::string MessageUClient::find_uuid_by_name(const std::string& name) {
-    // Loop through our global map (g_client_db)
-    for (const auto& pair : g_client_db) {
-        if (pair.second.username == name) {
-            // Return converted UUID from hex ASCII to binary
-            return hex_ascii_to_binary(pair.first);
-        }
-    }
-    return ""; // If loop finishes without finding a match, return empty string
-}
-
-// Searches RAM client DB for a user's name by their binary UUID
-std::string MessageUClient::find_name_by_uuid(const std::string& uuid_bin) {
-    std::string hex = binary_to_hex_ascii(uuid_bin);
-
-    // If found uuid in our local DB, return the name
-    if (g_client_db.count(hex)) {
-        return g_client_db[hex].username;
-    }
-    // If uuid not in our local DB, check if it's our own uuid
-    if (hex == g_my_info.uuid_hex) {
-        return g_my_info.name;
-    }
-    return "Unknown"; // If loop finishes without finding a match return Unknown
-}
-
     // Implementat menu options
 
 // Handles entire registration process of user (input 110/ request code 600)

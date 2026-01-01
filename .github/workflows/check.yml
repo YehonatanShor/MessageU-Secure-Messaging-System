@@ -34,7 +34,7 @@ jobs:
       - name: Compile Client Source
         run: |
           cd client/src
-          g++ main.cpp MessageUClient.cpp RSAWrapper.cpp Base64Wrapper.cpp AESWrapper.cpp -o test.exe -std=c++17 -lWs2_32 -lpthread -lcryptopp -I../include
+          g++ main.cpp MessageUClient.cpp RSAWrapper.cpp Base64Wrapper.cpp AESWrapper.cpp network/connection.cpp network/protocol_handler.cpp -o test.exe -std=c++17 -lWs2_32 -lpthread -lcryptopp -I../include
 
   # Verify Python Server syntax and style
   check-server-compilation:

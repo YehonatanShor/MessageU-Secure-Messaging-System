@@ -8,6 +8,7 @@ and the main event loop using Python's selectors API.
 import struct
 import selectors
 import socket
+from config import constants
 from network.connection import ConnectionState
 from network.protocol import parse_request_header, validate_client_version
 from utils.responses import send_error_response
@@ -131,8 +132,6 @@ class MessageUServer:
             port: Port number (if None, will read from file or use default)
             port_filename: Filename to read port from (if None, uses default)
         """
-        from config import constants
-        
         # Determine port
         if port is None:
             port = constants.DEFAULT_PORT

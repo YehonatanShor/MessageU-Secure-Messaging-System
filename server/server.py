@@ -1,9 +1,5 @@
-import selectors
-import socket
 import struct  # For packing/unpacking binary data
 import uuid    # For generating unique client IDs
-import sqlite3  # For database operations
-from datetime import datetime  # For timestamping messages
 
 # Import all protocol and configuration constants
 from config import constants
@@ -11,30 +7,11 @@ from config import constants
 from utils.responses import send_response, send_error_response, send_registration_success
 # Import database manager
 from database.manager import DatabaseManager
+# Import network components
+from network.server import MessageUServer
 
 # Global DB instance
 db = DatabaseManager(constants.DB_FILENAME)
-sel = selectors.DefaultSelector()
-
-# Connection State Manager for each client connection
-
-
-class ConnectionState:
-    def __init__(self):
-        self.reset_for_new_request()
-
-    def reset_for_new_request(self):
-        self.state = "HEADER"
-        self.buffer = b""
-        self.expected_len = constants.REQUEST_HEADER_SIZE
-        self.client_id = b""
-        self.request_code = 0
-
-    def set_payload_state(self, client_id, code, payload_size):
-        self.state = "PAYLOAD"
-        self.client_id = client_id
-        self.request_code = code
-        self.expected_len = payload_size
 
 # Handles user registration
 
@@ -277,122 +254,21 @@ def handle_request(conn, state):
     state.buffer = state.buffer[state.expected_len:]
     state.reset_for_new_request()
 
-# Read Data from Client Connection
-
-
-def read(conn, mask):
-    # Get connection state
-    state = sel.get_key(conn).data["state"]
-
-    # Read data
-    try:
-        data = conn.recv(8192)
-    except ConnectionError:
-        sel.unregister(conn)
-        conn.close()
-        return
-    if not data:
-        sel.unregister(conn)
-        conn.close()
-        return
-
-    # Append new data to buffer
-    state.buffer += data
-
-    # Process all complete requests in buffer
-    while True:
-        # Process HEADER
-        if state.state == "HEADER":
-            if len(state.buffer) >= constants.REQUEST_HEADER_SIZE:
-                # Extract header
-                header_data = state.buffer[:constants.REQUEST_HEADER_SIZE]
-                client_id = header_data[:constants.CLIENT_UUID_SIZE]
-                version, code, payload_size = struct.unpack(
-                    '!BHI', header_data[constants.CLIENT_UUID_SIZE:])
-
-                # Verify client version
-                if version != constants.CLIENT_VERSION:
-                    send_error_response(
-                        conn, f"Wrong client version: {version}")
-                    sel.unregister(conn)
-                    conn.close()
-                    return
-
-                # Set to expect payload
-                state.set_payload_state(client_id, code, payload_size)
-                state.buffer = state.buffer[constants.REQUEST_HEADER_SIZE:]
-            else:
-                break
-
-        # Process PAYLOAD
-        if state.state == "PAYLOAD":
-            if len(state.buffer) >= state.expected_len:
-                # We have a complete payload, process the request
-                handle_request(conn, state)
-            else:
-                break
-        if not state.buffer:
-            break
-
-# Accept New Connections
-
-
-def accept(sock, mask):
-    conn, addr = sock.accept()
-    print('accepted connection from', addr)
-
-    # Non-blocking socket
-    conn.setblocking(False)
-
-    # Register connection for reading with a new ConnectionState
-    sel.register(
-        conn,
-        selectors.EVENT_READ,
-        data={
-            "callback": read,
-            "state": ConnectionState()})
-
 # Main Server Loop
 
 
 def main():
-    port = constants.DEFAULT_PORT  # default port
-
-    # Try to read port from file
-    try:
-        with open(constants.PORT_FILENAME, "r") as f:
-            port_str = f.read().strip()
-            if port_str:
-                port = int(port_str)
-    except Exception as e:
-        print(f"Using default port {port} ({e})")
-
-    # Create listening socket
-    sock = socket.socket()
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(('0.0.0.0', port)) # Bind to all interfaces
-    sock.listen(100)
-    sock.setblocking(False)  # Non-blocking socket
-    sel.register(
-        sock, selectors.EVENT_READ, data={
-            "callback": accept})  # Accept new connections
-    print(f"Server (v{constants.SERVER_VERSION}) listening on 0.0.0.0: {port}")
-
-    # Main event loop
-    try:
-        while True:
-            events = sel.select()
-
-            # Handle events
-            for key, mask in events:
-                key.data["callback"](key.fileobj, mask)
-    except KeyboardInterrupt:
-        print("Server shutting down.")
-
-    # Graceful shutdown
-    finally:
-        sel.close()
-        sock.close()
+    # Create server instance
+    server = MessageUServer(db)
+    
+    # Set the request handler
+    server.handle_request = handle_request
+    
+    # Start server
+    server.start()
+    
+    # Run event loop
+    server.run()
 
 
 # Entry point of script

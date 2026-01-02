@@ -13,7 +13,17 @@ You don't need to install anything except Docker to see the server in action!
 
 ### 1. Run the Server (Instant Deployment)
 
-The server is available as a pre-built image on Docker Hub. Run it with one command:
+The server is available as a pre-built image on Docker Hub.
+
+**Important:** Always pull the latest image before running to ensure you're using the most recent version:
+
+pull the latest version of the server from Docker Hub:
+
+```bash
+  docker pull yehonatanshor/messageu-server:latest
+```
+
+Run the server container:
 
 ```bash
   docker run -d -p 1234:1234 --name msg-server yehonatanshor/messageu-server:latest

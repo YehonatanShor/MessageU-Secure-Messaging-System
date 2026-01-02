@@ -141,11 +141,19 @@ jobs:
           fi
           echo "✓ server.py size is correct"
           echo ""
-          echo "=== Checking for imports ==="
+          echo "=== Checking for modular imports ==="
           if grep -q "from config import constants" server/server.py; then
             echo "✓ Uses modular imports (config)"
           else
             echo "✗ Missing modular import - appears to be old code"
+            exit 1
+          fi
+          echo ""
+          echo "=== Checking network binding ==="
+          if grep -q "0.0.0.0" server/network/server.py; then
+            echo "✓ network/server.py binds to 0.0.0.0 (accessible from outside container)"
+          else
+            echo "✗ ERROR: network/server.py doesn't bind to 0.0.0.0!"
             exit 1
           fi
           echo ""
@@ -155,24 +163,6 @@ jobs:
           fi
           echo "✓ All checks passed - ready to build Docker image"
 
-      - name: Verify code is actually new (not cached)
-        run: |
-          echo "=== Verifying we're building with latest code ==="
-          echo "Checking server.py content..."
-          if grep -q "from config import constants" server/server.py; then
-            echo "✓ server.py uses modular imports"
-          else
-            echo "✗ ERROR: server.py doesn't use modular imports!"
-            exit 1
-          fi
-          if grep -q "0.0.0.0" server/network/server.py; then
-            echo "✓ network/server.py binds to 0.0.0.0"
-          else
-            echo "✗ ERROR: network/server.py doesn't bind to 0.0.0.0!"
-            exit 1
-          fi
-          echo "✓ Code verification passed"
-
       - name: Determine Docker tags
         id: docker_tags
         run: |
@@ -181,9 +171,6 @@ jobs:
           else
             echo "tags=yehonatanshor/messageu-server:latest" >> $GITHUB_OUTPUT
           fi
-          # Always use no-cache to ensure fresh builds with latest code
-          # Cache can cause issues if old layers are reused
-          echo "no_cache=true" >> $GITHUB_OUTPUT
 
       - name: Build and push
         uses: docker/build-push-action@v4
@@ -195,7 +182,6 @@ jobs:
           build-args: |
             BUILD_DATE=${{ github.event.head_commit.timestamp || github.run_started_at }}
             GIT_SHA=${{ github.sha }}
-            CACHE_BUST=${{ github.sha }}
           # Always build without cache to ensure fresh builds with latest code
           # This prevents using stale cached layers that might contain old code
           no-cache: true

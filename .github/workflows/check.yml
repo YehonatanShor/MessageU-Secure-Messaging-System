@@ -155,16 +155,35 @@ jobs:
           fi
           echo "✓ All checks passed - ready to build Docker image"
 
+      - name: Verify code is actually new (not cached)
+        run: |
+          echo "=== Verifying we're building with latest code ==="
+          echo "Checking server.py content..."
+          if grep -q "from config import constants" server/server.py; then
+            echo "✓ server.py uses modular imports"
+          else
+            echo "✗ ERROR: server.py doesn't use modular imports!"
+            exit 1
+          fi
+          if grep -q "0.0.0.0" server/network/server.py; then
+            echo "✓ network/server.py binds to 0.0.0.0"
+          else
+            echo "✗ ERROR: network/server.py doesn't bind to 0.0.0.0!"
+            exit 1
+          fi
+          echo "✓ Code verification passed"
+
       - name: Determine Docker tags
         id: docker_tags
         run: |
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             echo "tags=yehonatanshor/messageu-server:${{ github.ref_name }},yehonatanshor/messageu-server:latest" >> $GITHUB_OUTPUT
-            echo "no_cache=true" >> $GITHUB_OUTPUT
           else
             echo "tags=yehonatanshor/messageu-server:latest" >> $GITHUB_OUTPUT
-            echo "no_cache=false" >> $GITHUB_OUTPUT
           fi
+          # Always use no-cache to ensure fresh builds with latest code
+          # Cache can cause issues if old layers are reused
+          echo "no_cache=true" >> $GITHUB_OUTPUT
 
       - name: Build and push
         uses: docker/build-push-action@v4
@@ -176,6 +195,7 @@ jobs:
           build-args: |
             BUILD_DATE=${{ github.event.head_commit.timestamp || github.run_started_at }}
             GIT_SHA=${{ github.sha }}
-          # Build without cache for tags to ensure fresh build with latest code
-          # Use cache for main branch pushes (faster, but still fresh code)
-          no-cache: ${{ steps.docker_tags.outputs.no_cache == 'true' }}
+            CACHE_BUST=${{ github.sha }}
+          # Always build without cache to ensure fresh builds with latest code
+          # This prevents using stale cached layers that might contain old code
+          no-cache: true

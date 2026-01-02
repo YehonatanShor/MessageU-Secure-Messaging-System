@@ -4,6 +4,7 @@ FROM python:3.12-slim
 # Build arguments for cache busting and version tracking
 ARG BUILD_DATE
 ARG GIT_SHA
+ARG CACHE_BUST=1
 
 # Add labels for version tracking
 LABEL org.opencontainers.image.created="${BUILD_DATE}"
@@ -13,8 +14,8 @@ LABEL org.opencontainers.image.revision="${GIT_SHA}"
 WORKDIR /app
 
 # Copy the server directory contents into the container at /app/server
-# This must come after any cache-busting operations to ensure fresh code
-COPY server/ /app/server/
+# Using CACHE_BUST to force fresh copy even if file timestamps are similar
+COPY --chown=root:root server/ /app/server/
 
 # Verify modular structure exists (this will fail build if structure is wrong)
 RUN test -d /app/server/config && \

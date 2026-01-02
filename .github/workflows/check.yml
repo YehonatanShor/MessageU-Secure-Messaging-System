@@ -85,14 +85,17 @@ jobs:
         run: |
           docker build -t messageu-server-test .
 
-  # New Job: Push to Docker Hub only on Tag creation
+  # New Job: Build and Push to Docker Hub
   push-to-dockerhub:
     needs: [check-server-compilation] # Run only if tests pass
-    if: startsWith(github.ref, 'refs/tags/') # Run only when creating a release tag
+    # Run on tags OR on main branch pushes (to keep latest updated)
+    if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 # Fetch all history to ensure we have the full code
 
       - name: Login to Docker Hub
         uses: docker/login-action@v2
@@ -100,18 +103,68 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Verify Git state
+        run: |
+          echo "Git commit SHA: ${{ github.sha }}"
+          echo "Git ref: ${{ github.ref }}"
+          echo "Git tag: ${{ github.ref_name }}"
+          git log --oneline -5
+          echo "Current directory structure:"
+          ls -la
+
       - name: Verify server structure before build
         run: |
-          echo "Checking server structure..."
-          ls -la server/
-          echo "Checking for modular structure..."
-          test -d server/config && echo "✓ config/ exists" || echo "✗ config/ missing"
-          test -d server/database && echo "✓ database/ exists" || echo "✗ database/ missing"
-          test -d server/network && echo "✓ network/ exists" || echo "✗ network/ missing"
-          test -d server/handlers && echo "✓ handlers/ exists" || echo "✗ handlers/ missing"
-          test -d server/utils && echo "✓ utils/ exists" || echo "✗ utils/ missing"
-          echo "Checking server.py size (should be ~70 lines, not 600+)..."
-          wc -l server/server.py
+          echo "=== Checking server structure ==="
+          echo "Server directory contents:"
+          ls -la server/ || exit 1
+          echo ""
+          echo "=== Checking for modular structure ==="
+          MISSING=0
+          test -d server/config && echo "✓ config/ exists" || { echo "✗ config/ missing"; MISSING=1; }
+          test -d server/database && echo "✓ database/ exists" || { echo "✗ database/ missing"; MISSING=1; }
+          test -d server/network && echo "✓ network/ exists" || { echo "✗ network/ missing"; MISSING=1; }
+          test -d server/handlers && echo "✓ handlers/ exists" || { echo "✗ handlers/ missing"; MISSING=1; }
+          test -d server/utils && echo "✓ utils/ exists" || { echo "✗ utils/ missing"; MISSING=1; }
+          echo ""
+          echo "=== Checking server.py ==="
+          if [ ! -f server/server.py ]; then
+            echo "✗ server.py file missing!"
+            exit 1
+          fi
+          LINES=$(wc -l < server/server.py)
+          echo "server.py has $LINES lines (should be ~70, not 600+)"
+          if [ "$LINES" -gt 200 ]; then
+            echo "✗ ERROR: server.py is too large ($LINES lines) - appears to be monolithic version!"
+            echo "First 20 lines of server.py:"
+            head -20 server/server.py
+            exit 1
+          fi
+          echo "✓ server.py size is correct"
+          echo ""
+          echo "=== Checking for imports ==="
+          if grep -q "from config import constants" server/server.py; then
+            echo "✓ Uses modular imports (config)"
+          else
+            echo "✗ Missing modular import - appears to be old code"
+            exit 1
+          fi
+          echo ""
+          if [ "$MISSING" -eq 1 ]; then
+            echo "✗ BUILD FAILED: Modular structure is incomplete!"
+            exit 1
+          fi
+          echo "✓ All checks passed - ready to build Docker image"
+
+      - name: Determine Docker tags
+        id: docker_tags
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "tags=yehonatanshor/messageu-server:${{ github.ref_name }},yehonatanshor/messageu-server:latest" >> $GITHUB_OUTPUT
+            echo "no_cache=true" >> $GITHUB_OUTPUT
+          else
+            echo "tags=yehonatanshor/messageu-server:latest" >> $GITHUB_OUTPUT
+            echo "no_cache=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Build and push
         uses: docker/build-push-action@v4
@@ -119,11 +172,10 @@ jobs:
           context: .
           push: true
           pull: true # Always pull base image to ensure freshness
-          tags: |
-            yehonatanshor/messageu-server:latest
-            yehonatanshor/messageu-server:${{ github.ref_name }}
+          tags: ${{ steps.docker_tags.outputs.tags }}
           build-args: |
             BUILD_DATE=${{ github.event.head_commit.timestamp || github.run_started_at }}
             GIT_SHA=${{ github.sha }}
           # Build without cache for tags to ensure fresh build with latest code
-          no-cache: true
+          # Use cache for main branch pushes (faster, but still fresh code)
+          no-cache: ${{ steps.docker_tags.outputs.no_cache == 'true' }}

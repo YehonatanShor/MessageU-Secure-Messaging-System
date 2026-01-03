@@ -166,11 +166,19 @@ jobs:
       - name: Determine Docker tags
         id: docker_tags
         run: |
+          # Extract the shortened Hash (7 characters)
+          SHA_SHORT=$(git rev-parse --short ${{ github.sha }})
+          REPO="yehonatanshor/messageu-server"
+
+          #Default tags: latest and the shortened Hash
+          TAGS="${REPO}:latest,${REPO}:${SHA_SHORT}"
+
+          # If this is a tag (version) push, also include the tag name
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            echo "tags=yehonatanshor/messageu-server:${{ github.ref_name }},yehonatanshor/messageu-server:latest" >> $GITHUB_OUTPUT
-          else
-            echo "tags=yehonatanshor/messageu-server:latest" >> $GITHUB_OUTPUT
+            TAGS="${TAGS},${REPO}:${{ github.ref_name }}"
           fi
+
+          echo "tags=${TAGS}" >> $GITHUB_OUTPUT
 
       - name: Build and push
         uses: docker/build-push-action@v4

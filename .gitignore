@@ -57,6 +57,7 @@ __pycache__/
 # MEDIA FILES (Often too large for Git)
 *.mp4
 *.png
+!System Architecture Overview.png
 *.jpg
 *.jpeg
 *.gif

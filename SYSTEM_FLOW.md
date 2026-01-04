@@ -24,31 +24,41 @@
 ## 🏗️ System Architecture Overview
 
 ```mermaid
-graph TB
-    subgraph CI_CD["🔄 CI/CD Pipeline"]
-        GitHub[GitHub Repository<br/>Code Push/Tag]
-        Actions[GitHub Actions<br/>Build & Test]
-        DockerHub[Docker Hub<br/>yehonatanshor/messageu-server]
-    end
+flowchart TB
+    subgraph TopRow[" "]
+        direction LR
+        subgraph Clients["💻 Client Applications (C++)"]
+            direction LR
+            Client1["Client 1<br/>End Device"]
+            Client2["Client 2<br/>End Device"]
+            Client3["Client 3<br/>End Device"]
+            ClientN["Client N<br/>..."]
+        end
 
-    subgraph DockerContainer["🐳 Docker Container"]
-        subgraph Server["🚀 Server Application (Python)"]
-            ServerNetwork[Network Layer<br/>Selectors API]
-            RequestRouter[Request Router<br/>server.py]
-            HandlersServer[Business Logic Handlers]
-            Database[(SQLite Database)]
+        subgraph CI_CD["🔄 CI/CD Pipeline"]
+            direction TB
+            GitHub["GitHub Repository<br/>Code Push/Tag"]
+            Actions["GitHub Actions<br/>Build & Test"]
+            DockerHub["Docker Hub<br/>yehonatanshor/messageu-server"]
+            GitHub -->|Push/Tag| Actions
+            Actions -->|Build Image| DockerHub
         end
     end
 
-    subgraph Clients["💻 Client Applications (C++)"]
-        Client1[Client 1<br/>End Device]
-        Client2[Client 2<br/>End Device]
-        Client3[Client 3<br/>End Device]
-        ClientN[Client N<br/>...]
+    subgraph DockerContainer["🐳 Docker Container"]
+        direction TB
+        subgraph Server["🚀 Server Application (Python)"]
+            direction LR
+            ServerNetwork["Network Layer<br/>Selectors API"]
+            RequestRouter["Request Router<br/>server.py"]
+            HandlersServer["Business Logic<br/>Handlers"]
+            Database[("SQLite<br/>Database")]
+            ServerNetwork --> RequestRouter
+            RequestRouter --> HandlersServer
+            HandlersServer --> Database
+        end
     end
 
-    GitHub -->|Push/Tag| Actions
-    Actions -->|Build Image| DockerHub
     DockerHub -->|Pull & Run| DockerContainer
 
     Client1 <-->|TCP/IP<br/>Port 1234| ServerNetwork
@@ -56,18 +66,22 @@ graph TB
     Client3 <-->|TCP/IP<br/>Port 1234| ServerNetwork
     ClientN <-->|TCP/IP<br/>Port 1234| ServerNetwork
 
-    ServerNetwork --> RequestRouter
-    RequestRouter --> HandlersServer
-    HandlersServer --> Database
-
-    style DockerContainer fill:#0db7ed,color:#fff
-    style Server fill:#fff4e1
-    style Database fill:#ffe1f5
-    style Clients fill:#e1f5ff
-    style CI_CD fill:#f0f0f0
-    style GitHub fill:#24292e,color:#fff
-    style Actions fill:#2088ff,color:#fff
-    style DockerHub fill:#0db7ed,color:#fff
+    style TopRow fill:transparent,stroke:transparent
+    style DockerContainer fill:#e1f5ff,stroke:#0db7ed,stroke-width:3px
+    style Server fill:#fff4e1,stroke:#000000,stroke-width:2px
+    style Database fill:#ffe1f5,stroke:#000000,stroke-width:2px
+    style ServerNetwork fill:#ffe1f5,stroke:#000000,stroke-width:2px
+    style RequestRouter fill:#ffe1f5,stroke:#000000,stroke-width:2px
+    style HandlersServer fill:#ffe1f5,stroke:#000000,stroke-width:2px
+    style Clients fill:#e1f5ff,stroke:#000000,stroke-width:2px
+    style Client1 fill:#e1f5ff,stroke:#000000,stroke-width:2px
+    style Client2 fill:#e1f5ff,stroke:#000000,stroke-width:2px
+    style Client3 fill:#e1f5ff,stroke:#000000,stroke-width:2px
+    style ClientN fill:#e1f5ff,stroke:#000000,stroke-width:2px
+    style CI_CD fill:#f0f0f0,stroke:#000000,stroke-width:2px
+    style GitHub fill:#24292e,color:#fff,stroke:#000000,stroke-width:2px
+    style Actions fill:#2088ff,color:#fff,stroke:#000000,stroke-width:2px
+    style DockerHub fill:#0db7ed,color:#fff,stroke:#000000,stroke-width:2px
 ```
 
 ### Component Responsibilities

@@ -23,66 +23,7 @@
 
 ## 🏗️ System Architecture Overview
 
-```mermaid
-flowchart TB
-    subgraph TopRow[" "]
-        direction LR
-        subgraph Clients["💻 Client Applications (C++)"]
-            direction LR
-            Client1["Client 1<br/>End Device"]
-            Client2["Client 2<br/>End Device"]
-            Client3["Client 3<br/>End Device"]
-            ClientN["Client N<br/>..."]
-        end
-
-        subgraph CI_CD["🔄 CI/CD Pipeline"]
-            direction TB
-            GitHub["GitHub Repository<br/>Code Push/Tag"]
-            Actions["GitHub Actions<br/>Build & Test"]
-            DockerHub["Docker Hub<br/>yehonatanshor/messageu-server"]
-            GitHub -->|Push/Tag| Actions
-            Actions -->|Build Image| DockerHub
-        end
-    end
-
-    subgraph DockerContainer["🐳 Docker Container"]
-        direction TB
-        subgraph Server["🚀 Server Application (Python)"]
-            direction LR
-            ServerNetwork["Network Layer<br/>Selectors API"]
-            RequestRouter["Request Router<br/>server.py"]
-            HandlersServer["Business Logic<br/>Handlers"]
-            Database[("SQLite<br/>Database")]
-            ServerNetwork --> RequestRouter
-            RequestRouter --> HandlersServer
-            HandlersServer --> Database
-        end
-    end
-
-    DockerHub -->|Pull & Run| DockerContainer
-
-    Client1 <-->|TCP/IP<br/>Port 1234| ServerNetwork
-    Client2 <-->|TCP/IP<br/>Port 1234| ServerNetwork
-    Client3 <-->|TCP/IP<br/>Port 1234| ServerNetwork
-    ClientN <-->|TCP/IP<br/>Port 1234| ServerNetwork
-
-    style TopRow fill:transparent,stroke:transparent
-    style DockerContainer fill:#e1f5ff,stroke:#0db7ed,stroke-width:3px
-    style Server fill:#fff4e1,stroke:#000000,stroke-width:2px
-    style Database fill:#ffe1f5,stroke:#000000,stroke-width:2px
-    style ServerNetwork fill:#ffe1f5,stroke:#000000,stroke-width:2px
-    style RequestRouter fill:#ffe1f5,stroke:#000000,stroke-width:2px
-    style HandlersServer fill:#ffe1f5,stroke:#000000,stroke-width:2px
-    style Clients fill:#e1f5ff,stroke:#000000,stroke-width:2px
-    style Client1 fill:#e1f5ff,stroke:#000000,stroke-width:2px
-    style Client2 fill:#e1f5ff,stroke:#000000,stroke-width:2px
-    style Client3 fill:#e1f5ff,stroke:#000000,stroke-width:2px
-    style ClientN fill:#e1f5ff,stroke:#000000,stroke-width:2px
-    style CI_CD fill:#f0f0f0,stroke:#000000,stroke-width:2px
-    style GitHub fill:#24292e,color:#fff,stroke:#000000,stroke-width:2px
-    style Actions fill:#2088ff,color:#fff,stroke:#000000,stroke-width:2px
-    style DockerHub fill:#0db7ed,color:#fff,stroke:#000000,stroke-width:2px
-```
+![System Architecture Overview](System%20Architecture%20Overview.png)
 
 ### Component Responsibilities
 
@@ -97,6 +38,92 @@ flowchart TB
 | **Server Router**   | Parse requests, dispatch to handlers               |
 | **Server Handlers** | Business logic, database operations                |
 | **Database**        | Store clients, messages, metadata                  |
+
+### Project File Structure
+
+The project follows a modular architecture with clear separation of concerns:
+
+#### Server Structure (Python)
+
+```
+server/
+├── __init__.py
+├── server.py                      # Entry point - only program startup
+├── config/
+│   ├── __init__.py
+│   └── constants.py               # All protocol constants in one place
+├── database/
+│   ├── __init__.py
+│   └── manager.py                  # DatabaseManager - only DB operations
+├── network/
+│   ├── __init__.py
+│   ├── connection.py              # ConnectionState - connection state management
+│   ├── protocol.py                # Binary protocol construction and parsing
+│   └── server.py                  # Socket and event loop management
+├── handlers/
+│   ├── __init__.py
+│   ├── registration.py            # handle_registration()
+│   ├── client_list.py             # handle_client_list()
+│   ├── public_key.py              # handle_public_key_request()
+│   ├── messaging.py               # handle_send_message(), handle_pull_messages()
+│   └── deletion.py                # handle_delete_user()
+└── utils/
+    ├── __init__.py
+    └── responses.py                # send_response(), send_error_response()
+```
+
+#### Client Structure (C++)
+
+```
+client/
+├── include/
+│   ├── MessageUClient.h              # Main small class (orchestration)
+│   ├── protocol/
+│   │   ├── constants.h                # All protocol constants
+│   │   ├── request_builder.h          # Request construction
+│   │   └── response_parser.h          # Response parsing
+│   ├── network/
+│   │   ├── connection.h               # Network connection management
+│   │   └── protocol_handler.h         # Low-level protocol I/O
+│   ├── crypto/
+│   │   ├── key_manager.h              # RSA key management
+│   │   └── encryption.h               # AES encryption/decryption
+│   ├── storage/
+│   │   ├── file_manager.h             # File operations
+│   │   └── client_storage.h           # Client storage utilities
+│   ├── ui/
+│   │   └── menu.h                     # Menu and user interface
+│   └── handlers/
+│       ├── base_handler.h             # Base handler with common utilities
+│       ├── registration_handler.h     # Registration business logic
+│       ├── client_list_handler.h      # Client list business logic
+│       ├── public_key_handler.h       # Public key request logic
+│       ├── messaging_handler.h        # Messaging business logic
+│       └── deletion_handler.h         # User deletion logic
+└── src/
+    ├── main.cpp                       # Entry point
+    ├── MessageUClient.cpp             # Orchestration implementation
+    ├── protocol/
+    │   └── constants.cpp
+    ├── network/
+    │   ├── connection.cpp
+    │   └── protocol_handler.cpp
+    ├── crypto/
+    │   ├── key_manager.cpp
+    │   └── encryption.cpp
+    ├── storage/
+    │   ├── file_manager.cpp
+    │   └── client_storage.cpp
+    ├── ui/
+    │   └── menu.cpp
+    └── handlers/
+        ├── base_handler.cpp
+        ├── registration_handler.cpp
+        ├── client_list_handler.cpp
+        ├── public_key_handler.cpp
+        ├── messaging_handler.cpp
+        └── deletion_handler.cpp
+```
 
 ---
 

@@ -3,6 +3,12 @@
 ![Code Compilation Check](https://github.com/YehonatanShor/MessageU-Secure-Messaging-System/actions/workflows/check.yml/badge.svg)
 ![Latest Release](https://img.shields.io/github/v/release/YehonatanShor/MessageU-Secure-Messaging-System)
 
+## System Architecture Overview
+
+![System Architecture Overview](System%20Architecture%20Overview.png)
+
+For more details, see [SYSTEM_FLOW.md](SYSTEM_FLOW.md).
+
 ## Description
 
 A secure, encrypted client-server messaging application implementing a custom application-layer protocol. The system features a C++ multi-threaded client and a Python server, designed with a focus on Defensive Programming principles and cryptographic security.

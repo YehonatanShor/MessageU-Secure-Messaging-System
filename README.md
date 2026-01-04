@@ -94,6 +94,11 @@ This project implements a professional DevOps pipeline using **GitHub Actions**,
 - **Client:** C++17, Boost.Asio (Networking), Crypto++ (Encryption), OOP.
 - **Server:** Python 3.12, Selectors API (I/O Multiplexing), SQLite3.
 
+## Documentation
+
+- **[SYSTEM_FLOW.md](SYSTEM_FLOW.md):** Comprehensive system flow documentation with detailed diagrams, protocol reference, and architecture overview.
+- **[SECURITY_ASSESSMENT.md](SECURITY_ASSESSMENT.md):** Security analysis and vulnerability assessment of the MessageU protocol, including identified risks and remediation strategies.
+
 ## How to Build & Test (For Developers)
 
 ### 1. Manual Server Setup
@@ -143,3 +148,37 @@ To build and run the entire environment locally (including database persistence)
 ```bash
   docker-compose up --build
 ```
+
+---
+
+## Technical Highlights
+
+### Architecture & Concurrency
+
+The server implements **I/O multiplexing** using Python's `selectors` API, allowing a single-threaded process to handle hundreds of concurrent client connections efficiently. The event loop blocks on `select()`, which transfers control to the kernel - the process consumes zero CPU when idle and wakes only when I/O events occur. This pattern is the foundation of high-performance network servers (Nginx, Node.js, Redis).
+
+### Key Exchange & Encryption Flow
+
+The system implements a **hybrid encryption scheme** combining RSA (asymmetric) and AES (symmetric):
+
+1. **Initial Setup:** Each client generates a 1024-bit RSA keypair during registration. The public key is stored on the server, the private key remains on the client.
+2. **Symmetric Key Exchange:** When Client A wants to communicate with Client B:
+   - Client A requests Client B's public key from the server
+   - Client A generates a random AES-256 symmetric key
+   - Client A encrypts the symmetric key with Client B's public RSA key and sends it via the server
+   - Client B decrypts the symmetric key using their private RSA key
+3. **Message Encryption:** All subsequent messages between A and B use AES-256 in CBC mode with a **cryptographically secure random IV** per message, preventing pattern detection attacks.
+
+### Protocol Design
+
+A **custom binary protocol** over TCP/IP using Big-Endian (network byte order) ensures cross-platform compatibility between the C++ client and Python server. The protocol uses fixed-size headers with request/response codes, enabling efficient parsing and minimal overhead. Messages are queued server-side until recipients pull them, supporting asynchronous communication.
+
+### Network Architecture
+
+- **Client:** Synchronous, single-threaded operations using Boost.Asio for TCP connections
+- **Server:** Event-driven architecture with non-blocking sockets, handling multiple clients concurrently through a single event loop
+- **Database:** SQLite with proper connection management and transaction handling for data persistence
+
+### Security Considerations
+
+The protocol includes several security measures: random IV generation per message, hybrid encryption (RSA + AES), and client-side key management. The system also includes comprehensive input validation and error handling. See [SECURITY_ASSESSMENT.md](SECURITY_ASSESSMENT.md) for detailed security analysis and identified vulnerabilities.

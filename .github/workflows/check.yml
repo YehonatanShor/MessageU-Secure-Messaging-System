@@ -5,13 +5,65 @@ on:
   push:
     branches: ["main"]
     tags: ["v*"]
+    # Run on code changes or workflow changes
+    paths:
+      - 'client/**'
+      - 'server/**'
+      - 'tests/**'
+      - 'Dockerfile'
+      - 'docker-compose.yml'
+      - '.github/workflows/check.yml'
+      - 'server/**/*.info'
+      - 'client/**/*.info'
   pull_request:
     branches: ["main"]
+    # Run on code changes or workflow changes
+    paths:
+      - 'client/**'
+      - 'server/**'
+      - 'tests/**'
+      - 'Dockerfile'
+      - 'docker-compose.yml'
+      - '.github/workflows/check.yml'
+      - 'server/**/*.info'
+      - 'client/**/*.info'
 
 jobs:
+  # Detect which parts of the codebase changed
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      client: ${{ steps.filter.outputs.client }}
+      server: ${{ steps.filter.outputs.server }}
+      docker: ${{ steps.filter.outputs.docker }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Need full history for path filtering
+      
+      - name: Check for changes
+        uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          filters: |
+            client:
+              - 'client/**'
+            server:
+              - 'server/**'
+              - 'tests/**'
+            docker:
+              - 'Dockerfile'
+              - 'docker-compose.yml'
+
   # Verify C++ Client compilation on Windows environment
+  # Only runs if client code or workflow changes
   check-client-compilation:
     runs-on: windows-latest
+    needs: detect-changes
+    if: |
+      startsWith(github.ref, 'refs/tags/') ||
+      needs.detect-changes.outputs.client == 'true'
 
     defaults:
       run:
@@ -37,8 +89,14 @@ jobs:
           g++ main.cpp MessageUClient.cpp RSAWrapper.cpp Base64Wrapper.cpp AESWrapper.cpp network/connection.cpp network/protocol_handler.cpp crypto/key_manager.cpp crypto/encryption.cpp storage/file_manager.cpp storage/client_storage.cpp ui/menu.cpp handlers/base_handler.cpp handlers/registration_handler.cpp handlers/client_list_handler.cpp handlers/public_key_handler.cpp handlers/messaging_handler.cpp handlers/deletion_handler.cpp -o test.exe -std=c++17 -lWs2_32 -lpthread -lcryptopp -I../include
 
   # Verify Python Server syntax and style
+  # Only runs if server code, tests, Dockerfile, or workflow changes
   check-server-compilation:
     runs-on: ubuntu-latest
+    needs: detect-changes
+    if: |
+      startsWith(github.ref, 'refs/tags/') ||
+      needs.detect-changes.outputs.server == 'true' ||
+      needs.detect-changes.outputs.docker == 'true'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -86,10 +144,16 @@ jobs:
           docker build -t messageu-server-test .
 
   # New Job: Build and Push to Docker Hub
+  # Only runs if server code, Dockerfile, or config files changed
   push-to-dockerhub:
-    needs: [check-server-compilation] # Run only if tests pass
-    # Run on tags OR on main branch pushes (to keep latest updated)
-    if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'
+    needs: [check-server-compilation, detect-changes] # Run only if tests pass
+    # Run on tags OR on main branch pushes with server/Dockerfile changes
+    if: |
+      startsWith(github.ref, 'refs/tags/') ||
+      (github.ref == 'refs/heads/main' && (
+        needs.detect-changes.outputs.server == 'true' ||
+        needs.detect-changes.outputs.docker == 'true'
+      ))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository

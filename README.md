@@ -5,7 +5,7 @@
 
 ## System Architecture Overview
 
-![System Architecture Overview](System-Architecture-Overview.png)
+![System Architecture Overview](System-Architecture-Overview-v2.png)
 
 For more details, see [SYSTEM_FLOW.md](SYSTEM_FLOW.md).
 

@@ -23,7 +23,7 @@
 
 ## 🏗️ System Architecture Overview
 
-![System Architecture Overview](System%20Architecture%20Overview.png)
+![System Architecture Overview](System-Architecture-Overview.png)
 
 ### Component Responsibilities
 

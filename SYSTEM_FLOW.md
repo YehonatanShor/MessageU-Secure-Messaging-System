@@ -25,33 +25,49 @@
 
 ```mermaid
 graph TB
-    subgraph Client["Client Application (C++)"]
-        UI[UI/Menu Layer]
-        Handlers[Business Logic Handlers]
-        Network[Network Layer<br/>Boost.Asio]
-        Crypto[Crypto Layer<br/>Crypto++]
-        Storage[Storage Layer<br/>File I/O]
+    subgraph CI_CD["🔄 CI/CD Pipeline"]
+        GitHub[GitHub Repository<br/>Code Push/Tag]
+        Actions[GitHub Actions<br/>Build & Test]
+        DockerHub[Docker Hub<br/>yehonatanshor/messageu-server]
     end
 
-    subgraph Server["Server Application (Python)"]
-        ServerNetwork[Network Layer<br/>Selectors API]
-        RequestRouter[Request Router<br/>server.py]
-        HandlersServer[Business Logic Handlers]
-        Database[(SQLite Database)]
+    subgraph DockerContainer["🐳 Docker Container"]
+        subgraph Server["🚀 Server Application (Python)"]
+            ServerNetwork[Network Layer<br/>Selectors API]
+            RequestRouter[Request Router<br/>server.py]
+            HandlersServer[Business Logic Handlers]
+            Database[(SQLite Database)]
+        end
     end
 
-    UI --> Handlers
-    Handlers --> Network
-    Handlers --> Crypto
-    Handlers --> Storage
-    Network <-->|TCP/IP<br/>Binary Protocol| ServerNetwork
+    subgraph Clients["💻 Client Applications (C++)"]
+        Client1[Client 1<br/>End Device]
+        Client2[Client 2<br/>End Device]
+        Client3[Client 3<br/>End Device]
+        ClientN[Client N<br/>...]
+    end
+
+    GitHub -->|Push/Tag| Actions
+    Actions -->|Build Image| DockerHub
+    DockerHub -->|Pull & Run| DockerContainer
+
+    Client1 <-->|TCP/IP<br/>Port 1234| ServerNetwork
+    Client2 <-->|TCP/IP<br/>Port 1234| ServerNetwork
+    Client3 <-->|TCP/IP<br/>Port 1234| ServerNetwork
+    ClientN <-->|TCP/IP<br/>Port 1234| ServerNetwork
+
     ServerNetwork --> RequestRouter
     RequestRouter --> HandlersServer
     HandlersServer --> Database
 
-    style Client fill:#e1f5ff
+    style DockerContainer fill:#0db7ed,color:#fff
     style Server fill:#fff4e1
     style Database fill:#ffe1f5
+    style Clients fill:#e1f5ff
+    style CI_CD fill:#f0f0f0
+    style GitHub fill:#24292e,color:#fff
+    style Actions fill:#2088ff,color:#fff
+    style DockerHub fill:#0db7ed,color:#fff
 ```
 
 ### Component Responsibilities

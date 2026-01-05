@@ -3,9 +3,11 @@
 ![Code Compilation Check](https://github.com/YehonatanShor/MessageU-Secure-Messaging-System/actions/workflows/check.yml/badge.svg)
 ![Latest Release](https://img.shields.io/github/v/release/YehonatanShor/MessageU-Secure-Messaging-System)
 
-## System Architecture Overview
+## System Architecture & CI/CD Pipeline Overview
 
-![System Architecture Overview](System-Architecture-Overview-v2.png)
+The diagram illustrates the integrated CI/CD pipeline (GitHub Actions to Docker Hub), the containerized Python server structure utilizing the Selectors API and SQLite, and the secure TCP/IP communication layer featuring the custom binary protocol and RSA/AES encrypted payloads.
+
+![System Architecture Overview](System-Architecture-Overview-v3.png)
 
 For more details, see [SYSTEM_FLOW.md](SYSTEM_FLOW.md).
 
